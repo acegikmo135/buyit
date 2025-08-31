@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BuyIt</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* Dark theme colors */
+            --background-color: #0d1117;
+            --primary-text-color: #c9d1d9;
+            --secondary-text-color: #8b949e;
+            --card-background: #161b22;
+            --border-color: #30363d;
+            --button-bg-color: #21262d;
+            --button-text-color: #c9d1d9;
+            --balance-color: #238636;
+            --sell-color: #c93c3c;
+            --receipt-bg: #1f2428;
+            --scroll-thumb-color: #444;
+            --scroll-track-color: #222;
+        }
+
+        body.light-mode {
+            /* Light theme colors */
+            --background-color: #f6f8fa;
+            --primary-text-color: #24292f;
+            --secondary-text-color: #57606a;
+            --card-background: #ffffff;
+            --border-color: #d0d7de;
+            --button-bg-color: #f6f8fa;
+            --button-text-color: #24292f;
+            --balance-color: #2a6136;
+            --sell-color: #d73a49;
+            --receipt-bg: #e5e8ea;
+            --scroll-thumb-color: #aaa;
+            --scroll-track-color: #f0f0f0;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+            transition: color 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        body {
+            background-color: var(--background-color);
+            color: var(--primary-text-color);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            padding-top: 80px; /* Default space for the fixed header */
+        }
+
+        /* Scrollbar styles */
+        body::-webkit-scrollbar {
+            width: 12px;
+        }
+
+        body::-webkit-scrollbar-track {
+            background: var(--scroll-track-color);
+        }
+
+        body::-webkit-scrollbar-thumb {
+            background-color: var(--scroll-thumb-color);
+            border-radius: 6px;
+            border: 3px solid var(--scroll-track-color);
+        }
+
+        /* Header Styles */
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 80px;
+            background-color: var(--card-background);
+            border-bottom: 2px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+            z-index: 100;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .header-content {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-grow: 1;
+            gap: 20px;
+        }
+
+        .balance-display {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--balance-color);
+            text-shadow: 0 0 10px rgba(35, 134, 54, 0.5);
+            animation: pulse-shadow 2s infinite ease-in-out;
+        }
+
+        @keyframes pulse-shadow {
+            0% { text-shadow: 0 0 10px rgba(35, 134, 54, 0.5); }
+            50% { text-shadow: 0 0 20px rgba(35, 134, 54, 0.8); }
+            100% { text-shadow: 0 0 10px rgba(35, 134, 54, 0.5); }
+        }
+
+        .lock {
+            font-size: 2rem;
+            color: var(--secondary-text-color);
+            position: absolute;
+            left: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            animation: bounce-lock 2s infinite ease-in-out;
+        }
+
+        @keyframes bounce-lock {
+            0%, 100% { transform: translateY(-50%) rotate(0deg); }
+            25% { transform: translateY(-60%) rotate(5deg); }
+            50% { transform: translateY(-50%) rotate(-5deg); }
+            75% { transform: translateY(-40%) rotate(5deg); }
+        }
+
+        .theme-toggle {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 1.5rem;
+            color: var(--secondary-text-color);
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            padding: 10px;
+        }
+
+        .theme-toggle:hover {
+            color: var(--primary-text-color);
+        }
+
+        /* Main Content */
+        .items-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 20px auto;
+        }
+
+        .item-card {
+            background-color: var(--card-background);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .item-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+        }
+
+        .item-card img {
+            width: 100%;
+            height: 150px;
+            object-fit: contain;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+
+        .item-card h4 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: var(--primary-text-color);
+        }
+
+        .item-card .item-price {
+            font-size: 1rem;
+            color: var(--balance-color);
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        
+        .item-owned {
+            font-size: 0.9rem;
+            color: var(--secondary-text-color);
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        .quantity-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+            width: 100%;
+            justify-content: center;
+        }
+
+        .quantity-controls input {
+            width: 70px;
+            text-align: center;
+            background-color: var(--button-bg-color);
+            color: var(--button-text-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 5px;
+            font-size: 1rem;
+            -moz-appearance: textfield; /* Firefox */
+        }
+        .quantity-controls input::-webkit-outer-spin-button,
+        .quantity-controls input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+
+        .quantity-controls button {
+            background-color: var(--button-bg-color);
+            color: var(--button-text-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            width: 35px;
+            height: 35px;
+            cursor: pointer;
+            font-size: 1.4rem;
+            font-weight: 600;
+            transition: background-color 0.2s, transform 0.1s;
+        }
+
+        .quantity-controls button:hover:not(:disabled) {
+            background-color: var(--border-color);
+        }
+        .quantity-controls button:active:not(:disabled) {
+            transform: scale(0.95);
+        }
+        .quantity-controls button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .action-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            width: 100%;
+        }
+
+        .action-buttons button {
+            width: 100%;
+            padding: 10px;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.2s ease, filter 0.3s ease;
+        }
+        
+        .buy-button { background-color: var(--balance-color); }
+        .sell-button { background-color: var(--sell-color); }
+
+        .action-buttons button:hover:not(:disabled) {
+            filter: brightness(1.1);
+        }
+        
+        .action-buttons button:disabled {
+            background-color: #30363d;
+            cursor: not-allowed;
+            color: var(--secondary-text-color);
+        }
+        .action-buttons button:active:not(:disabled) {
+            transform: scale(0.98);
+        }
+
+        /* Receipt Section */
+        .receipt-container {
+            max-width: 1200px;
+            margin: 40px auto;
+            background-color: var(--receipt-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.2);
+            transition: opacity 0.4s ease, transform 0.4s ease, visibility 0.4s, height 0.4s ease, padding 0.4s ease, margin 0.4s ease;
+        }
+        
+        .receipt-container.hidden {
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(20px);
+            height: 0;
+            padding: 0;
+            margin: 0 auto;
+            overflow: hidden;
+        }
+
+        .receipt-container h3 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 20px;
+            color: var(--primary-text-color);
+            text-shadow: 0 0 5px rgba(255, 255, 255, 0.1);
+        }
+
+        .receipt-list {
+            list-style: none;
+            padding: 0;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        /* Custom scrollbar for receipt list */
+        .receipt-list::-webkit-scrollbar { width: 8px; }
+        .receipt-list::-webkit-scrollbar-track { background: var(--scroll-track-color); }
+        .receipt-list::-webkit-scrollbar-thumb { background-color: var(--scroll-thumb-color); border-radius: 4px; }
+
+        .receipt-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 5px;
+            border-bottom: 1px dashed var(--border-color);
+            font-size: 1rem;
+            color: var(--secondary-text-color);
+            animation: fade-in 0.5s ease-out;
+            flex-wrap: wrap; /* Allow wrapping on small screens */
+            gap: 10px; /* Add gap for wrapped items */
+        }
+
+        @keyframes fade-in {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .receipt-item:last-child {
+            border-bottom: none;
+        }
+
+        .receipt-item-name {
+            font-weight: 600;
+            color: var(--primary-text-color);
+        }
+        
+        .receipt-item-details {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-grow: 1; /* Allow this to take up space */
+        }
+        
+        .receipt-item-value {
+             text-align: right;
+        }
+
+        .grand-total {
+            text-align: right;
+            margin-top: 20px;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary-text-color);
+            border-top: 2px solid var(--border-color);
+            padding-top: 15px;
+        }
+        
+        /* Receipt Toggle Button */
+        .receipt-toggle-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 101;
+        }
+
+        .receipt-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: var(--button-bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 50px;
+            padding: 10px;
+            cursor: pointer;
+            overflow: hidden;
+            width: 48px;
+            height: 48px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            transition: width 0.4s ease, background-color 0.3s ease;
+        }
+
+        .receipt-toggle:hover {
+            /* Expand on hover only for non-touch devices */
+            @media (hover: hover) and (pointer: fine) {
+                width: 180px;
+                background-color: var(--border-color);
+            }
+        }
+
+        .receipt-toggle i {
+            flex-shrink: 0;
+            font-size: 1.2rem;
+            color: var(--button-text-color);
+            transition: transform 0.4s ease;
+        }
+
+        .receipt-toggle-text {
+            white-space: nowrap;
+            margin-left: 10px;
+            font-weight: 600;
+            color: var(--button-text-color);
+        }
+
+        /* Utility classes */
+        .text-center { text-align: center; }
+        
+        /* --- Responsive Design --- */
+
+        /* For Tablets and smaller desktops */
+        @media (max-width: 992px) {
+            .balance-display {
+                font-size: 2rem;
+            }
+            .items-grid, .receipt-container {
+                padding: 15px;
+                margin: 15px auto;
+            }
+        }
+
+        /* For Mobile Devices */
+        @media (max-width: 768px) {
+            body {
+                padding-top: 120px; /* Increased padding for the taller header */
+            }
+
+            .header {
+                height: auto; /* Allow header to determine its own height */
+                flex-direction: column;
+                padding: 15px;
+                gap: 15px;
+                justify-content: center;
+            }
+
+            .header-content {
+                order: 2; /* Move balance display below icons */
+                width: 100%;
+                text-align: center;
+            }
+            
+            .balance-display {
+                font-size: 1.8rem;
+                word-break: break-all; /* Prevent overflow if number is too long */
+            }
+
+            .lock, .theme-toggle {
+                position: static; /* Remove absolute positioning */
+                transform: none;
+            }
+            
+            .header > .lock {
+                position: absolute;
+                top: 15px;
+                left: 15px;
+                transform: none;
+            }
+
+            .header > .theme-toggle {
+                position: absolute;
+                top: 15px;
+                right: 15px;
+                transform: none;
+            }
+
+            .items-grid {
+                 grid-template-columns: 1fr; /* Single column layout on mobile */
+                 gap: 15px;
+                 padding: 10px;
+                 margin: 10px auto;
+            }
+
+            .receipt-container {
+                margin: 20px 10px;
+            }
+
+            .grand-total {
+                font-size: 1.2rem;
+            }
+
+            .receipt-toggle-text {
+                display: none; /* Hide text to keep the button small */
+            }
+             .receipt-toggle:hover {
+                 width: 48px; /* On mobile, don't expand on hover */
+             }
+        }
+        
+        @media (max-width: 480px) {
+            .balance-display {
+                font-size: 1.5rem;
+            }
+
+            .item-card h4 {
+                font-size: 1.1rem;
+            }
+
+            .quantity-controls {
+                flex-wrap: wrap; /* Allow controls to wrap if needed */
+                gap: 8px;
+            }
+
+            .action-buttons {
+                grid-template-columns: 1fr; /* Stack buy/sell buttons vertically */
+            }
+        }
+
+    </style>
+</head>
+<body class="dark-mode">
+
+    <!-- Header -->
+    <header class="header">
+        <div class="lock"><i class="fas fa-lock"></i></div>
+        <div class="header-content">
+            <div id="balance-display" class="balance-display">$1,000,000,000,000</div>
+        </div>
+        <button id="theme-toggle" class="theme-toggle">
+            <i class="fas fa-sun"></i>
+        </button>
+    </header>
+
+    <!-- Main Items Grid -->
+    <main class="items-grid" id="items-grid"></main>
+
+    <!-- Receipt -->
+    <section class="receipt-container" id="receipt-container">
+        <h3 class="text-center">Your Items</h3>
+        <ul id="receipt-list" class="receipt-list">
+            <!-- Receipt items will be dynamically added here -->
+        </ul>
+        <div id="grand-total" class="grand-total">Total Value: $0</div>
+    </section>
+    
+    <!-- Receipt Toggle Button -->
+    <div class="receipt-toggle-container">
+        <div class="receipt-toggle" id="receipt-toggle">
+            <i class="fas fa-receipt"></i>
+            <span class="receipt-toggle-text">Show Receipt</span>
+        </div>
+    </div>
+
+    <script>
+        // --- Game Logic Start ---
+        const items = [
+            { id: 1, title: "Coca Cola", price: 1, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjC0MUej9QlggvrvXMJEYTtGWcEtMMw7E0qdSfPGItc6zst0w31yvpF7NABXI1CW1s1CGnDTs0hvgxxxnH3NTId8yrndLQgyBtbyWN8EhDkx1b6e-FdSKbOwkx6kStlL2UqNyBdmIIwu1ODcTOpONarVg5_3kdjw0evvfYsY0-MudcoiJTANr4sc-eXD8r2/s512/coca-cola.webp" },
+            { id: 2, title: "Starbucks Coffee", price: 5, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjdKmJmUxWyhU5xp9wTybdwxjcTq5Q-rH9MlaCyf3FG1X15vO4HXZ8RPKSapgLURaBZlsY1TTZ9T2tSTKiXBlrf7Cc8l4csJ3dZG4mVnU3fWG9T_dxalBIUhAFgGEna8xWyT6Ve8IxAPsHGObj8vsfeJIIpbtuaYO52g5k-mxsit_VCdJHd22vPDIIM_Fvm/s512/starbucks.webp" },
+            { id: 3, title: "Pizza", price: 10, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEiDN04JmgAuF5tnOFxCtIeZ0DqSmSvb4xhemAjUis0nr2QSGP7Ny6I1kdndZLsiYK7TiBTxgVp6XoN_GZ7EtHZVAiv1pAU_DXrcoXpwxkKuNOCCr1LNws65U9N75i_BNcjTw5EHHVSApL9nIQbpE8d2X8duvxA4TBjHTLESPuN_8GNsIKXBf3yYTvw4owd3/s512/pizza.webp" },
+            { id: 4, title: "Rubik's Cube", price: 15, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEi2Vb9a8nXUszGuyUnxCPpZnAt7CiuwFSRE9SZ7BZb-wv0OKLE1dAlQqxKjP9ZQTizocWvczGiqm1z1-8K6eDNxQHd_IQQLsNs_Lfclf56ZnoEhPyKAJR425l4CpdjIlzIi6Us2q1RyWm8YIT_BlXIUfmrUakfVI923mqC23KK9tYrzpynn0hNWkL8sbI1g/s512/rubik%20cube.webp" },
+            { id: 5, title: "Leather Wallet", price: 20, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEipVPmudxCGMB0OmDRSrN95ED4WAeERm95AeUZpGsFhOqG_GkFPxcZ18ol6up_PeDjkiWl_TVeqZX4gj4CDLJ02ZE0iX0TluIWL56zC6w13usnVaeHS6SGL6ti2GV7esRXX9FlRZfyBCrq7-q6m_zDG0AkbMs09xfIrjHHLveYVdbpbDjJFoNAI3i3cr2zC/s512/wallet.webp" },
+            { id: 6, title: "Perfume", price: 40, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhVAgk69dzr601Q3BvjjELd6NZYrTlFANs2Tdp_N6L6Yjv9PFDUvavBXGLMH_s2gb7_tnsfToGV28qcSEZMDyG_orC9x-DsKuQhs0bQEAYpREdvReZKHLkThfP_4mOXHTX7MThjg105ONDjDvGi4mfZDG50bImW7KqxGOmAIN9j0RTZTDNA_UtXXEKsC6hp/s512/perfume.webp" },
+            { id: 7, title: "Skateboard", price: 50, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhcLhYCPSfSY_LMxsYZc-Pi3LmDFJGldk_D2GIYzLl0gGglGfzU0od8sEasSXb1cversUWpCAyO5FyV4YSE5lVGtHz5_bYICgOoZeqvW6kwvqiaeEbDKy-OY7DzkHfHBLYOKkpRJfXBZ6XntWynOt7X4eeLJ-GH7oWGSo2lDkCnJcqRHWe7__ZwnnNJQquc/s512/skateboard.webp" },
+            { id: 8, title: "Alexa Echo Dot", price: 60, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEj33GKILL4fvPgUE_OD7v60rFUf0lGQ0Ul-cjYVXkKYuzQh2IN7dLjatA3FKuvXUbbiRTglRFmWv1s3vBnaXFq67B8kjwfYuUGRMoU_vh8R63xelunO_2bG-ISD0q-baILk87q8zsGuosRqT8YvJR93KowD2k9Ve-Vta2yeBaPe3ls2oqT2lFER7k19IhXS/s512/alexa.webp" },
+            { id: 9, title: "Smartwatch", price: 75, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjP8sfqiG7unddvP_Unolb-mjg80v5zJa_HqB078qBlTmNaXSMSTjVnTKBK1Z153P0U-2AbKIbyV8MC6zZYdzVjBSkbFuVZa9AxXMb44oNV6gtlR82KYTdAISJGyoA42SV5qxvQ74bYHq315rnUnsd8oHA51qfTWT0qX4kiU9M_PWXqWt6q7Q_IWN-655pZ/s512/watch.webp" },
+            { id: 10, title: "Luxury Fountain Pen", price: 80, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEgH5DNlJZAfT9TK4VC2f82z5FNnSNn3XC1cy04S91ZyRwCKnncYEVLE6EEjgrZobPT23bRW1BhE20P33IV-jpVwxoxWYPfds2iZ69n-AbNKcwlwUjl6yJm8fDDmerRgBkBfeSOWMeHucQKQ3fspR7ZJOA4fJnM3iCkfj9M5PmphcJ4n0UrSRO9BprDPo7bp/s512/fountain-pen.webp" },
+            { id: 11, title: "Halloween Costume", price: 100, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhlwyznUir-2dhgQsuhef5EvNMCjPgmb2j_D8-UEFAzvf6aeaLNA0MMrT4CMCJDXRGsbhYKWOg8Auk-Cj0VQIwtqQdZGIvs25-AJZ_Q-sRFMPyYyyDfSWgJqGTtIO3GdKkKo6270m6Tx5fh1Q_r4C6fGTd39v8llcWb1sfajB8hI78IjA-de6GBF/s512/halloween.webp" },
+            { id: 12, title: "Sneakers", price: 120, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEiFXi_IdZhvKTvIoFJLkgDGu5ugIsCfO8sdY3tnqTMSP7rYCL6uT7v0OJI_apd6dj5fYLlFQ9mUvvwwiFjmR-wZn0nuPAZuMIfHV5WFjq-cbgQtTewQAknLT2fv4q40CfBDxl1uXaj2QSrc705UtQkkgFrHZBBa5bvIEupVkvWnQ7caHfD08zY90k8XIPne/s512/sneakers.webp" },
+            { id: 13, title: "Luxury Sunglasses (Ray-Ban Aviator)", price: 170, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEg8zx61QsC2_AX6Clbzj9ZLmtiFxMu37r64DPYRn1hoxEyQ-suZ6mtqzcBlY8DWA1gVxhNzewPcYDGNJkEU4c0VtWO0sZl8vSgkxCytQ_d-i0H_3xO2qUv4qHVpccgbO5fB5v9_TCEdxbJ_8lCZZ2TowSuMGV6g3QdI-r8oiN3acaC5xhtM7qfGZHd7sJJO/s512/goggles.webp" },
+            { id: 14, title: "Leather Jacket", price: 180, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEgOWOqrsKquJkHnu4D77XlKa0b4Yushr2xnd16SjC-SpkLJaSSzFqWHzHFERCKpzUv507Iz25ksYRRW-fmfJTdZcgJr9ZjLV3tOE-sogbogGGLjP4EfBrblPL9mxt7Q2MXcWQU0fP7f2wfG1a2O9HufpCibKhJh0MB3e4_Gz3FQ0_V7iCb_gOsYrhyMQAT/s512/Leather-Jacket.webp" },
+            { id: 15, title: "AirPods Pro", price: 250, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEgUJQFkSTdMZEtQLxgt9SBzVScyIy8PQl-2MuUw1wVZ9i1rUmulQpJsEVuKmYN965YJ9ojUmk_ifAB4zn3fFu9nRdV8N7xgOT7IRxiTKQvP7QmKcU0qb5I4WvQKQfpyaaRWK08KeWD4ERVc5gmIyRiU-j_wrHo0LG62_WZnTmCXDS2RqiqhjYQggols6zXC/s512/airpods-pro-2.webp" },
+            { id: 16, title: "Gaming Chair", price: 270, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEitQ8giv6XRcMYwvtUcfad-bokzqA_46NhRBsxhmqMKPQ_N2CvkvKQVqAjqUXOQUlxS_VWa5StCTOlbbLEP7vnYyOrXxSJ0_ibsNgg2QB8BoAiwjH6Byg2CEnwC4aVEfu4qi8V3aZE-Agd_um_YR6hyLve856eO_Vzl57HCWdn0ciHHN4P2wIkJhYUO4pyq/s512/Gaming-chair.webp" },
+            { id: 17, title: "Gaming Console (Xbox One X)", price: 300, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjmHLD2fYFiwqmFQG8x__-osJBkwaAbIi7dWr8eNIRE3jaUgnpYvKKnInxai0R4NFK9eqkAy9g41LgdpFweZlTADPlg5OqNu5U37ZBvwVo63_s2hNr62DR3BbRozwCgF_oy_DZHqfRQmHvXFv-CJwWNG_NmYs6dLPdXSwEwackYB4RNWWN9G-XQzBdlPIBB/s512/gaming-console.webp" },
+            { id: 18, title: "4k Smart TV", price: 400, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhwS7y_1lUSvjVaNIB9oKY-aaeNLRk1gHFS8xk_D7UP4aW1_tXhfPgylWEfIGpYjua5pGyrKKWbWRJZPUBO2KH7y6fhTIHF1sq8LNFVjE5wYrtl60IhbmNsQ-W_YF0cbt28nsD3Ik70kN4Hcrt2E42I6jfWUuKQKfNkxL18KKiwsgh_VyEcHVArHiH7lOZg/s512/4k-tv.webp" },
+            { id: 19, title: "Espresso Coffee Machine", price: 450, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEil9224G0uScKC4FWMigQi8T0r9Qyvuw2rMjkqULEAo9NFM47XiwrTjShaDieQX-3aabg47OoUUDu8UYDXto5J94Qg7xQUip4iW0xLdeZzi5PODNp8X3WqBY7sP3W4ITMmVYA7UMtPbnw7qiUWKWuEml_5go0UOo9I_8cBCj88EsEP4VuX9OY2geT53tmjz/s320/Espresso-Coffee-Machine.webp" },
+            { id: 20, title: "PlayStation 5 Console", price: 499, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEiFIODEgmPazpJ0dteJVPDrsuHCb8n9ZCNv-qUwOHDgWSz71enu4bHEijOqNTLDRWuHucIISW00ON-OOYYYk2hsxgT5pRTbGr9xITpv_eaAx-BXu9zYoC8gtp-UfaFIaFdMEOPaozSnEeQZfS-nNeC6Egjo0qLDpbaHn47YIko_F97b6w76jLwjBSTuwXyG/s512/playstation.webp" },
+            { id: 21, title: "Bicycle", price: 590, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhWj7PBdy_DL2OJ0brTcFJ956lr2en-yTF7Z8IRWhXEezvLppPws8kME075FDJRhjEsx90z9S8-WhMChvmvmXMd9t-ubD9O9DAgsCXFc3p2cj-uaMpRPBO7P47xTEnWGY_Z61wP97DgArgerKDgc5KVx4XCn7IqhtNwS0SPNTD07DvtBz8UmjhhYWyQne-v/s512/sports-bicycle.webp" },
+            { id: 22, title: "Luxury Handbag", price: 990, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjlB8lJWLWJP4uf0X2J5dFtwa_qnzdNyeDGK9kVdhvxydL-fVlCQ-kjQeg2tJdXIqWmcCYEjblLOhbl8w2BNnbwDHQUWJBT1nQFm19Vj5vvhqSTJVynABm_iNptCn3Ep-F-Fg2avUkXGDT1w4_Xi2Wd9pp7xDCwTCenwYulRI8lZDj1W8-YmovXa-LJtxt9/s512/Luxury-Handbag.webp" },
+            { id: 23, title: "Cat", price: 1000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjmuxNTOVtRhDpY8ESFOBVlzWL3J6av88st6TIM6MjPAoNWekkY1iavg1dw624hPUd5_fbHa66QGXZYvu6PAKl7mH4rdg9ylqpYx9ODWUk5zkLNwhV6eVlR95old8qjwutwiTCiyykLCVdP0JpgQvEnaItf8OCFX3R0yNvuZ9iFt9wuxahlm1h-xJmAJ20A/s512/cat.webp" },
+            { id: 24, title: "Helicopter Tour of a City", price: 1000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhEKu74v0R6bwLPwSdTJOm-E_VdsmBHkTW3cJLzJuTzOOSZzh9w7M2WGmg7Suky5ElP_7FltQb6uDg0bFJk1DT6LUk8jK_q609KrxdAROofL5pHlntAydhY0jFu7X9WfbbM2k9iQdLWZ_LrP5-w4MPmFChqgtZtynyvu7xm9d2_LOack3XGE28_LWNnSv3T/s512/helicopter.webp" },
+            { id: 25, title: "iPhone 15 Pro Max", price: 1200, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjg6OdxS1uNvGqZJ2OSf4nMPYUpQFFNgag355D0W16Tv42Ok29t6tesgxnG_OI7J-ot_pN0bgyvFMmKyxXKL5XlOWK-t7afGmxVjd5TfJEZgzWcjXqId_m5eN0EkmHeo0Ac43yxuZzmMS0otBZT4DQ5_RO2G6kmCRexhkrBValBpEoY03mcTKpnWsNcXMM/s500/iphone-15.webp" },
+            { id: 26, title: "iPad Pro (M2)", price: 1499, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEgrXg0oJ1s2hRMwHThHYZi5gnETL3AOGIWZkZuB67SSdUliHU93ts4-MpU4og19jilCKdKBfVZCVgxnqnvOZbkM7OUf-hz-eWFNZvxgSbg7RX-C0xotP7MhN0CnE5ghL8LmmkBwRb7INE2rl8pZFHLQfeth5WeNTUI2fTTnptPiQxYHsfAy7FPGBFab0w/s300/ipad-pro.webp" },
+            { id: 27, title: "Samsung S25 Ultra", price: 1499, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhlAuOD-jwDJjX_g5bFTIqpsbawD5JErmwAiy8va_n-HtW9zuEwKD6VRD3ERwhSIAu4f4O1zgz2nrhCAR8hUNViG8cG98lUdmkOjNx2GMzgdiDsPc53NwtG8xC-gwmBblZ5uerat2SqQUW0DXyJFiT1nj9PPw3s-gPtT0ndDMJo1b8Tr5iYulC-UEtJo8E/s367/samsung-s23-ultra.webp" },
+            { id: 28, title: "Drone", price: 1500, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEixKvrZIpp_gBEankSOLBGEhsgZ5NhmWJNKxSmoEnXYVJN4SCJ1A67He3Tdme6E2Zr7DXUSgyHJhT78uTv7XIOUlNmDZMa_SXoACacyeCtyLrEUFrp1bmBX9lggnxw1Cwcn531EVEAcqW2C0ddvldl_tiXlw5lCk6jyh3kiLa0MJd7UON6avKzbWzQl7TCh/s512/drone.webp" },
+            { id: 29, title: "Royal Enfield", price: 1800, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEitz2igEe4Tv0Nkv5eBey56klyp2e2V1ANIRbKiIEACZiFCvMSe9vFOGsQtS59ZbSQj0SHmjXZfpTFP02dldmkoYk7W-t90OrXUylTvmR_uasTc8XUe_TrU1LfNNHzXnDDmXEMk_MuygWdoCQ8vfNNIwZcVO3bJiinkH7VnczsnkzHePDbmLRfOcPseBJ5r/s512/royal.webp" },
+            { id: 30, title: "DSLR Camera", price: 2000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhTnrTDf8b0x7uwn5WxrbfZA2zREH0b9LDjCoA4WjLWhj1ovdi2uUz6Z4WzCNr61jcJ3WOuS1C6J6cPgahyphenhyphenH15v1LCIudUVkca8bpwmk9_sP5nlzqHgt6_Q6CM3pE2BhnefBZ9kab0jZXVvwRBxRKp0NAWVXajLXUMMSEMVOFIpDpE0wDOqrKw3aewQCBAw/s512/camera.webp" },
+            { id: 31, title: "Cute Dog", price: 2000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEj76JNgnSEn-UptXOajADUWLnJhm_X8Hjt9q_HXMTUVREyfD56hbI-E10K1lrfGVBNvwusgg_rayhhyRuDlhiX6cPi0Ot8vAnbKIIIrX9UqEvRQqKdiCG7VHd9IjqTDqy1AOmtvZms9fXw1f_RIv_bRuZjtkWSilUYyTYdDzOIVvZYdu3PLUWWmMxKNn2bk/s512/dog.webp" },
+            { id: 32, title: "Guitar (Gibson)", price: 2200, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhrwz3wqUiRgJ8sqDtfTyNVfZNaCgbGuNw6vzOZtVbiRo4QtI-pDEfABaHSaTnHs5xNSviXoJiW6DuOuD5oTeTRm9ZazF9Fe2CoPY2RUoclStFBfE_5irhXimUMsMJPnFhQBDr416MhVfQz-0GNBYwGHGhpaMSQjOLQtRfm5SLdJQPy5iRDDeqcuiNlbHvz/s512/guiter.webp" },
+            { id: 33, title: "Gaming PC", price: 2500, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjOCJYrNOvvLN96Ux0VITC0RFyi9eOyNbbCTM0dzZHytrqaxXNvRV3g0KJvfwcYSK3akI9rDSt-Q3EpFb-WQWFioGNBSqs2PShLegyDY6Pzm-c8J0WCYKXVNC95HkL3Ce9SsbVvwee64JveTQjpe_ClbWvrQatzwbHFPjuOhUKWqcTNFaoFdCJBaYG-xis8/s512/gaming-pc.webp" },
+            { id: 34, title: "German Shepherd", price: 3000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjx3r5scVNtt3-BMCaGthQcxA6aqLaxCZTTCzwItF8tZO6sV5-9SYUeGYfsUb2sgY6Umc1XbsLqUtUz9nEnmj-YFMyiro4ydOoZ9g_x8ghCHjXbO2UVEyf9ACssOJGBIQjIwcsEua8KJF4IlJZQFN9N9ucsDuRd2f8TJ2Oyj1EHZC21xEH1AkpXXAeyRbLO/s512/German-shepherd.webp" },
+            { id: 35, title: "MacBook Pro", price: 3500, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEgAifScRCPJM_aJG3ahboFpmDBfj4g0l_AEm8hy1sfqHGu7pOP7xxf80wkaRde18K6SJytoWKKuZa35zkarnyAnMg4kgRMlqPbvCmpCPpGn3Psv-sGtgEzdOOwbF5eJkYw2Y7OCwbw9xg1zYckNPENhm7vSWCCAM3XK4Qs7x96EnntP10eJMwnONjeFSJek/s512/macbook-pro.webp" },
+            { id: 36, title: "Motorcycle", price: 3500, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjHzGkwEVnzUqFgCU1rcyqZdOQuG3q0sF1YHDlV58CPcoQhMBIENu48_8NGKWKGaAVTcooXGk5CrFN-JTaf2qVbRPV7GsDD1P8Us1ZqYy2vCGqsjSoQRNN_BqmsfrIK8wLuwFFkRX-ILzT5OYC267yu5mG45H2zuWk8mM5-E3qFQTjz1jEhVTN6mK7DN4ip/s512/motorcycle.webp" },
+            { id: 37, title: "Hajj Tour Package", price: 7500, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhworBrdRaRE1W3FG1gLzp8cTpAeWMWWTsekjwr81N4JYXHeAohv7hJ1iVMrco7lQO5cSe6vMw40i4FkkURvKugDiQeLuyGMmN_0mzN8ykPrKUF4IKsqJfBRzm0uJ9Z46-YOXVzcoIR_jKADH1meOuyr_8maD7RepOwh09cxM44iQLUKAMtfaUvaxYaB7k/s300/hajj.webp" },
+            { id: 38, title: "Diamond Ring", price: 8000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEgujxmr054GOHbuxwhTIWJCaNhLg0WWye7IqEDsem4lSoXnwB2TsQkNF2g_w4eCwBtGSLLNNHr3ZT5aRsYrBTNVlacrwYhHW8wzkyAf2vlZPbO_7QhnqLAxYHeWXJB2QEjh542yFrtffFRZgb3A-WxlHpS8HsgcoCT7nu1okaYJmHVwObH2Ms0fN4vNLGc/s640/diamond-ring.webp" },
+            { id: 39, title: "Multi Purpose Humanoid Robot", price: 10000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEi3NJjizlb50x3_V9RcRV-TlNJYrY_khGHuwQifT1spjmz2eBrBsBvCThbf5LHAEIgBEm4qyYrbPEoBuQ-bREd4-jaEk_rfdrj9m5BGiECXKCvMQFMIZbGturOhOGkXEJdKKE0N_RWUVH5D6aB-IdwZtF0FEai4MRPPpb27aZC7eI6KyCWaytOeCJD58_Mp/s512/robot.webp" },
+            { id: 40, title: "Hawaii Island Vacation", price: 15000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEg22FvyycOo1Fbiyo8Sy1l7rbzXbMbnUloxTpTeCLPyEmodnMQJ6eDy0mNgBPWOgFGg_6lGIjVzXQnj6lwUXKO7AUI0xMDWUiPqWf_5nvCuFa1QefuQ_i4nOhJZ9FrlI4uE89bfycyv52PugrhggyEr8GZBF29nrRUDU2joE70L-fOHX5hCf7uMf9PMUZY/s640/island-vacation.webp" },
+            { id: 41, title: "Thar", price: 17000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEg9tzRnNDTyUNtUNvdyEibpMY53bM1Res-FpUFqv3ddpnijzYHqkg4jy5yCfUPouGrCZ3zW06yPOkyKIAedMfq7Cnl-wQeh-OmXOes6nV21Nh8vNuRRRh68XqLKL3jSqwgRthjr8S0A4H7H_Aqwg4ot3y8iDnf5bKyRksgPAtNrl1j0kOCEN-GOyeFl5r-F/s512/thar.webp" },
+            { id: 42, title: "Rolex Submariner", price: 17500, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEgxuuG2T8pEL8IsPihmPJPyMF26UWLC7bpJZD20bJgsLPYUbKdSndKHph27BEnsAF41SkSayyQHqyiFo4oaUWBrsuJKb87uzGuLlsuOEnd50hZ9hkMpxCMU_McTVyCSTVKUeJfU6HThlMwpFdLHTPqHT3lu5NrhNzZuRkdAlzt10aoZ2LeR_9eFLg4SnQM/s500/rolex-submariners.webp" },
+            { id: 43, title: "High-end VR Gaming Setup", price: 25000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEgGfWEDcjhXA96xOsQZe58D9d-blb25wS7Zqcjtoz57CoPLutAFsHYPue-R2HC0yiVyaebayGG9UgnH1dELQHEICKHWB_93c7tJU1ATBEMQUHh0XJ9kxEgpDwVPSU67V6xjdVPuMRnayp_NltEAl1LCeeSBrsFgTHVvC6ZmOxlJ8i6UGicbY8WRWnXscIo/s300/vr-gaming-setup.webp" },
+            { id: 44, title: "Complete Tour of India", price: 40000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjnrHiyIf6yCoDHDH3BOlYVf5Z8iWshY9HyjELHMttkbrpPxlxvobzYk0jJycyGHlJFcqx4pkvnPl3T1W9tojd1kaOUO5FIJQ33bPt2NDFz1uqvDEx9DxItbKvSW2IGmsKzAQtTW3lMo3ZgpNpxveS1lfzLukaepp2Mf0wmh36kkLPcBWZXqGf_VZS02Rs/s252/tour-of-india.webp" },
+            { id: 45, title: "Setup Private High Tech Gym", price: 45000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjejFYpM2W2TNUlu4hmQo5wAsKdHnAZA9fXuZt6NXRMAz7HBMQnLjCrxbZwt3aSl2D3UilBeXK5i25svgoAyNGnQFxT9cMMxwewrhMw_IqowAMlWOgmoDu99wB-2lJl1wcCj5CgPwIzhyzwplPiQlG74NE0-Ka9zFwSZ5vgH3xZ-1Kdqs7Mk_WAhHGDENs/s240/high-tech-gym.webp" },
+            { id: 46, title: "Tesla Car", price: 50000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEh3FS0YKmsgR7SHywdsNSezshH6WRCmp4emnNZ9f-QFre8jOZuZs9RO_YAqxjv8hUsVhQmA5I9LUCBhDsNdtU3IiO6EF2cZoUQJh3R0CYqIjNism8LWCIdJqhIPZoIx_dkDd92JqVCEac8FcBga7gVmMlYcElS06Oehoj1Yx99LA-uswpO0ZqmBOT7rWJRg/s512/tesla.webp" },
+            { id: 47, title: "Toyota Fortuner", price: 60000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjJkJ6QR3jVtiDzlJ_IRMuE9fyhsiSBBjEBQ9sxfJ6oIxsAE2HtTbcaiU4xlAJZMuc-U2rieAYllC01zXTom8sPiumcbdyoq9iYjTl4m4WYxP8hJWFYA40uWPw1N5WFV_SWuvJ63flAvBULpot2vlnCfCaGAW9KDRy2SoL7od5REPDd0yhqsUPH5kaeIRbA/s512/toyota-fooftuner.webp" },
+            { id: 48, title: "Bitcoin", price: 89000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEi9ovtBM8c9KLJpiONaa6MEYq1jnDVXDoYacJFpx7rmKgwHiElKJM6eELarLMg1sJJEtDxEOtl__fYjBRGQ39noVRrbrKmL7Pa6EDKiO6W3t2ai5pAjEdm7Wvzezj7SzUX8Tbb1vjo18pmqYIg5qSSoCjId1lnJoykjcWWtLd2MXPX0sE-SKg4F6HXa3Yy/s512/bitcoin.webp" },
+            { id: 49, title: "Disney+ Hotstar for 80 Years", price: 120000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEh14C6FxJcBuadYtXfcPzuNEDAD8T-XGlQf_16Of977KNlmu3SHKoa_9jyMfxqHK_RmyUdaRo1TglgyIXbYoY_JIZwUau4IpkAuApKXTCtT8otk7k1jCRy9YBtFU1XBusLzstpwdPEDhPBvAsq3gLemnjDsv-4ReSQsBCJBYEpG2Wv2utrJKdMzwK606Eg/s300/hotstar.webp" },
+            { id: 50, title: "Ducati Superleggera V4", price: 145000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjLKwlN3Q4MjFsoCyZmcwHOuLsyXjv1BPngP0cWF4QUzNvDuSA6pWZe5ERKRsRv3ron3HgolN-uccUP7KCBdBrotfWvTAG8-Sb3jbVIc0GjxEDJ37Jsqr1AMzyvPicgvNnR0rryrHd3ObI2sdAbCODMk_bH7-gC9Jk9BnHw79bTivYHOWUo21YG836ooDJh/s512/Ducati%20Superleggera.webp" },
+            { id: 51, title: "Mercedes Benz", price: 160000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEglI4nKMTWir99xYG3qTTOSr1FPpaYr-tkAgVW-dXpbgywUiEJxuVwNVcikSoE2ZnU4EPzF0iaokg0_YQgLHION0bYZPdmFUeTtEO2gP2uP7cOsKYd4Vy8xB8xGdM49QkljmKMBRl68h50kibVUl_YmaeWeNcRJ0aNDWnFUFsgziwsQSvbOAGrqSCBiCuZZ/s512/Mercedes-benz.webp" },
+            { id: 52, title: "World Tour for 3 Months", price: 200000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhRKNeYpSloJO-A4EnxqjEX4_2wm52hVUFlBw0nfVeWCOvkUjkqzQ42qhm4mjq5ys1vG3MOsuSdThFSHASe-9bGO-x-T05M4Mw9mWvYY64i9uUqr6OW8JoL-cUpGq8vf9UKNaSCNqq3tVVu4vXe7Hrjt9LjyFUHpgBg7aMlxLOoSEHgvtqwX7EGkXJb9K8/s640/world-tour.webp" },
+            { id: 53, title: "Lamborghini", price: 300000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjh7eN54hI5D8k6L0MRE1yzW4eOLnxZFWziJUvJyVBb4TM3IVo12LFuHFlwYy90rsDSADtMwzaXPzdvaaYhTPE_sBLYeS3u_mMAKC1LkHALJFsU9DBLVTt0BSKbU2f9o0MZ1UmcQltc2eFNYfP2ywKkiMOWL0w0Q-kj92DBfto48vR_bQF7DPB6bytlgpjv/s512/lamborghini.webp" },
+            { id: 54, title: "Luxury Limousine", price: 450000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjKVNK881P2oC0bjgFjrg3rwWoG4GwEj0mDauk1xjy56BF0hm2EcPaVMY8xCBQ4mpzCMA0zlhyphenhyphen1lh9M89mHLCRCS7TJJm0HFaNVF2HR1Ty87jDHfxlDrJaWstXWxZ4DAQrrJjZUmfqO2sA-VogDA-Q-bTEjpf0BzXnuEqQsQko4u2fKxaptOQGGNd6pAlOS/s512/limousine.webp" },
+            { id: 55, title: "Netflix for 80 Years", price: 480000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEi9Eg-FTcgoKHKsv3aQMARIdTpIba8VEFsyMg2wNOO7u9uDUvI6o2abkqd5x0Za-uO-x0CvYnCfw7EOH5omdAO7c9v4dX-pWsKEiqLvMeIYuEImT4RDC03YgEk4aJi9dV-OR1VcICKB-VwHod4BP7vIEglMlBcMTZZtJGVHLe3cg35bAmUSGwtY28YZ0yvE/s512/netflix.webp" },
+            { id: 56, title: "Space Tourism", price: 500000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEh3gxxVb84m8hxoO7dwC5c1-0qcc9zv48W3Mutjyj-Z0VL1zzAgigG-rT7hyphenhyphenAsV79NW567ogQ1kdbB74D_D_urnfzh6ALBZmIZH5KnrY6bgfCkg9BX3XlUyOHDf1QzlGey4pu4tz4vNVHkrA9R6H3xHc1s_s6KGZDYtd-1j70gSmJ1SzJdNVKO7IiFImOkY/s512/space.webp" },
+            { id: 57, title: "Luxury RV", price: 500000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEgQEamURpzRMndmHlJNoBvONU2eP13OsrzEFMUJtL0KbDOklo-TakaiRboTLJk3N2Hasl8U-XLox0zLpXd9N4sfODAdYMCF0Hh1DUJkaeGlSgfYGZsmvOZn_MWaA526VVYwsMIzl8X71bYKLditgTAIHLFFVlKuauQkuWZByK2jfeShzhMwjz7ncwUvamhR/s512/Luxury%20RV.webp" },
+            { id: 58, title: "McLaren GT", price: 540000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjbHF5xKT-duQfu9T91vKjJ67DdHCPR8BvDIW103V74w_qjUS16z19WmgblbOzUobbz_cqClxjO8Wo_CxmCFGXdLkNczANGh2RgzF51q7sbvwLER0wPBc58ZRYAODqvLfPM6pgqvQaMTIFAvbAYDdNDwp3EL3G1FMJ9OMfivUQigviOopYnt_ykQcMElQNh/s512/gt.webp" },
+            { id: 59, title: "Ferrari", price: 575000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjs7bdu-4m1IY-v_L6poYhpVNN_0Tw0R-zLcIYJ4hNIu6Mj8KcgLz568FcIsiCZswCLq77xJSs9kL075Z1IcfPUZdGcvzA9aI42zXSpe-En1GfsDd1ODX4iHTxAhkNUUAw8V21o9w61lsgLl16A2QNM78kjHfdJAbgCfL-iig2pcWcjo5o1lrE7vtM7zKs/s512/ferrari.webp" },
+            { id: 60, title: "10 Kg Gold Bars", price: 620000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEi5yq0KJ3KGmboju10AqBTAt5rZUZHV_ZoT4XaW7AKy4usjGnZvrqIJJKXRCDTTsw9Uxg4QrxojFb0i20iJ5Hwv3SkIknpr58TXNGiexPBrpFjEN9TGD9T0WAOF80UZOZlbvALTi-vakId5JHPY9YRNae-ZPwvBnRUHratmD95JfO0F9B_z5YuBfei_uz-l/s512/gold.webp" },
+            { id: 61, title: "House in New York", price: 700000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhSweSi5RmrrrCiXGSu9RFqDvMC70AStOrr_u-W8T4f4MZ-3CJZHy5Nm1SiLugokUgBhUKPqwn69ih1AgyDp4RHGC66m6cFU3F-NYK2-fnpkwmDR0xEWDe9bZ74W3AvcJKdtbEIjb7ca-6YwzxMFvZwbIK0lzpHf6jcV1h_yNTv8M3DhNX2QYwakhYjvL3e/s512/House-in-New-York.webp" },
+            { id: 62, title: "Stay 1 Month in Royal Suite of Burj Al Arab", price: 750000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEj849z_UR1B7SWqloJFnL2ipd1SJZpiygSnmarNQ7AsKmfd-LfZjGYtXVYsk91csSTi5aG8yrneuv-nOF-WlX6QKaJpiopQYxzn7q9VjQc9wYTHwWfBKfGgt4FmbIjKYW-WAavU7MpdeciWVwA_JzYkeQDrKDSPag2n00eEaMV34VjkTfEvfCafQttWWuI/s640/burj-al-arab.webp" },
+            { id: 63, title: "Rolls-Royce", price: 1200000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhR1OL7LxnIT6iI4M-lqxCDYr3vrfYzzn6jfu45QtQDRsLJK6tXjuhoxkH_yqB5pXTAQ0z8V7f_BXpLTq0CPJwXHcZkcgOeY36RXjWbCVsInAYBFhl6fgMGJgujc5L9C_2migIIK1ZXMewmMx4-G-H_Ix_tg2y_bP5gZvTe3J8wEOLwsvZOyfL5bq3B8eI/s612/rolls-royce.webp" },
+            { id: 64, title: "Beachfront Mansion", price: 3000000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEgkK38nrFD-YdGbDkUVFvHnJ2-ashGDw7lY-n_CwCbxFyq5rStdr6xsT_M3vVd5z7gfKLAAi23uFIhTDaSfubZI5U7f33cR3n8cJ28Fma0Cu6RE_9x4M_HmL9khyhvuLIoxBDh528TkT4tQ-iVbVeXyojnUJ-Z_GhFJcKJGu7wXPOdgz6jfgZsCryugng/s640/mansion.webp" },
+            { id: 65, title: "Palm Jumeirah Villa (4BHK)", price: 7800000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEiKbzuhUhPF3Wg6G33duIq92ODzJqciJBKDXh4m6mxQJfArMm2lItPjPhNDWHTYTWRUq7zrXcSelNtmBLN918ZIlwwfwGfzYU5QbD8xRgCnnjei54zWwm5XOD-GyvdvEkLVN7AlDQT0pPzUoQmSGSqYkr4-fP_mFEu8cfz3GGEpM_iG-W9msTKW9oOVHCU/s300/palm-jumeirah-villa.webp" },
+            { id: 66, title: "Bugatti Centodieci", price: 8800000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjCICINdTl-ZWlBegjXXaj0VIqiKMkHmqqumSXRuVhy-7eCuBRMuW0o1Pg5JTGaN-I3nMPSGtD5vBXL1j-dI_Bbysgz1flfChyphenhyphenek6lDsfOnAHHbVUO35kSaW28Rkwb3b5CT5SNvRZY6mPL2lIkoKvt5GITzcj_EzSXSRUltkTzYNGJmWFhmYMRLb8Ovwvv/s512/bugatti-centodieci.webp" },
+            { id: 67, title: "Private Island (10 Acres)", price: 9950000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEgPfa7I1XrMvdydqLzcOY6vSwd7XFGS8bHkeK7wewq4MrBk4N-3Bcm_wbGu37EbpCjNVbsotW9h196Fgg5XziTd6jQXDO8hfHkCYmZczklnlrgWFjGRyPgKd7K7CegTkjdDI-4aWmhM3RTvGn_mNsshdYYYsQTh2X4nHOTr2Eutg60CqqO70UPj9tPdgqc/s300/private-island.webp" },
+            { id: 68, title: "10 Flats in Burj Khalifa", price: 30000000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEivGY-9ND4ebZmyWJm-RKWSrZjxtU2OVHtI-iENZKWapEhwyC-75biOmFL8bjX0USzyY_AfCSjNqYpINZHjp3bMknOrWtSio6xMWs26LBmRNUJ3CbEqaf1y_n7rdbqjCrjlXaGSrMBBEEdd2xNXzwMbwxrP6N7ir3XZBCdybelPwxBh3lc6P3j_0cWAzj8/s640/burj-khalifa.webp" },
+            { id: 69, title: "Give $5,000 to 10,000 People", price: 50000000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEiLGF_WxIsb4V-yJtiQkN6-m-BAKjhyOjZ26ABj7Dq3XwWu0QMQRkTCZaBM6-NhpS8Wp-Dls0vH1qsfqfLviXXgcJYikzIPuaau9I36RJ9F8y8Vp1xX2gEpxD3BbotP68XyDDhdcwLJR9HB0iRQBEdxP8RDZa1WzUNqH5nxpA9_VH2o-FzjbM2HXpOhYo6v/s512/dollar.webp" },
+            { id: 70, title: "Private Jet", price: 50000000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhygC-DkEFq3SKm_W90ibsKUR4AUTUUd9qkNEs66hrI6ukE1BoEgMgOYe8RZVUHHW-B43V8tYtW-q7i7Ep_NO735RVs2Um3yhLfIh2TQmyfspIvB1FjhqJXlI6ItvfEmQxnQ2XAJLEdcQzvJWy5APbV0A1ghVdkLE4UkNRQkDxWloW1Ut14eLmkUYbaNv59/s512/private-jet.webp" },
+            { id: 71, title: "Apache Helicopter", price: 52000000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhEKu74v0R6bwLPwSdTJOm-E_VdsmBHkTW3cJLzJuTzOOSZzh9w7M2WGmg7Suky5ElP_7FltQb6uDg0bFJk1DT6LUk8jK_q609KrxdAROofL5pHlntAydhY0jFu7X9WfbbM2k9iQdLWZ_LrP5-w4MPmFChqgtZtynyvu7xm9d2_LOack3XGE28_LWNnSv3T/s512/helicopter.webp" },
+            { id: 72, title: "Luxury Yacht", price: 90000000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjQePfgcOQpTH3c1OtziO18owQgXrnn1a1lhy_gQr1x01jquqHJaJOYDyjP7aKfGrW73DkkJSuSDf1JzaHsYdCEQTf2lpAzjdiughGIpB4PpnD2cMjXGfuOiihgc5y7VLhuJTi5pRehwr5oNv7iywxt40yptIOqIjdxKLeUQJ95NDjLOmdoeJ5Wpi4fSKO4/s512/luxury-yacht.webp" },
+            { id: 73, title: "Cruise Ship", price: 150000000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEi9cV4aDaO2sFoG75DWbyPVfBb2DX-QaW2J4FY6vgwlwwtu7Wyx_QRbRdQI070Z4wWdtlIZzirQL2CiVDXRIpGhjD3IZGAcoYI5IvzNZUKyt80-vvjWDhuVzAvLhnC6YdZ15od1W3dkzG88m22RzI-K-PEqfR_LXpIYKbtGnFObzEz1TuUaOgSjIYmtg8IM/s512/Cruise-ship.jpg" },
+            { id: 74, title: "Build a Hospital", price: 100000000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjrV3kthDNv0TxUSHy4rc-s982SpwyiBvQ5Wec0x7Wu6eKjPf5eB7n-ZK2zCdo5pQ0kMPsTc7sSzy8j3CnKwj-viKMIytFKj4UD8yNKuBDtgODRPUyU-Qs7enCbY24Cwi_RvjVRZJKlAU2y_wKqd3PgmEWP3zHDP0TFOdy2sbNTojCkj2cE8CoSi0Wn5gYk/s512/build-hospital.webp" },
+            { id: 75, title: "Feed 1 Million Hunger for 1 Month", price: 300000000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjq9jK4xMA3U9ocQf7ApFusl_e-lALMN11zFB1z4y0Ls4Jw_igJrst6KK5oGaqzvNeG-ukYtPHX92uQhwbFqHQqrrZMOpVh_wwwiYIbUd5ulz9gHE_oNxJagjQDm3eOVP-Wlwi1pcwuN_3XtsJccV5pLJeymJ5ikGAoh2Vv0ZBueIRylnpLrYejdIposwc/s446/feed-hungry.webp" },
+            { id: 76, title: "Give Shelters to 100k Homeless People", price: 350000000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjVX8dfgDt3bFG_UKcz7VvVREJ-8XX-qxVTZC1ZvQS8ZO36zIAMMnjsn1pQT4kKgKY9Jp7tK-4AnHKyJTcQHd8csqlMqOsMslfrs9tdNao2tVDst2vM8tcQigTAOYee06-qk8WcLbMinaDFVx1qRivjOeL4qlvpOzIMxrx0OS-UMCYwqleGCuorhJuJWM/s300/give-shelters-to-homeless-people.webp" },
+            { id: 77, title: "White House", price: 400000000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjeINcT8P8eW6elCrvQzeakG-n3H8VWUZwM0nyb4E3ZtJBMYAzPVapndhPeJBV82_t3pwcxUZuJqZ6upQBfhdciyqBTv4lgdxBITjTpSlqyv6Ty-oIQ7pnjRtSNOlz_rVcT2-Mol06LNDkm8gI5oT2gX_zNeCCkj6eI-YVt9PJY0EgPwBji_ipiYDvs6-w/s640/white-house.webp" },
+            { id: 78, title: "NASA Spacesuit", price: 500000000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhbjySWnXXL_U1HxpIHKFQgnvSdkGJRqevmw-eoJNSUgdhLl43ZtMTPoB7qc2959aR0FgvJkVmEsRdMbRQU4NJQIWOTCC9HmQyz35Ba1B0KBKvXhcKQs2KaujFK2PcQ4CV8Izk5p0qp8AYzE_vEkeHfdCdffZhV9VpyFB8Oag9a5UTru6IxT7f-CScr-FM8/s512/Nasa-spacesuit.jpg" },
+            { id: 79, title: "MLB Team", price: 2300000000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEho7E27ZccVGwSBq2ovDY_pxNDvG7HyUyHLtreom1dfsImSr9z1EIjccY_64u4MAlwXLDVjt-nYyUsjOLkl3-46OK4rbbRnV9hmkURjmDGGa7YKi0huTeb9u0sX7i4xIacFrZ6u8MRdz09oyrtcdvfPKy-U5b1un_TCO0K-Eb2xwhIsXS4EEMSFp7tuao4/s434/mlb-team.webp" },
+            { id: 80, title: "NBA Team", price: 3850000000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjakze7IKXvNY2UWdcBmKBLbomStf7DtD9SfXMjbsqte8aVuUnUGmBSqy1rLVuy1XaLXwRR2ABIHzSAjEHO4fewF4cv_V4WVFi5cwdNa3U-ITu0ZWRIJI3HdR6lcJ7xnnFlyGkNeKKhm-_4zuNNjI0P4ERoEoJ2siYZcTMat9onbIYhuBH3dTOlabl9w81u/s512/nba-team.jpg" },
+            { id: 81, title: "NFL Team", price: 9000000000, image: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhPWb9e85B3nVSVjTYsc_Nl7kRICfQvVhikBH8rbOV513H2FeYtxfS55fmbwZmqrgGVupvl1-hKQWK1jHiyf6IrzY6qpNf6tzrUki64WG4iHB_fKmQv3-xHS-D22daY-Bdlauk0p4quhi8tQg2BY6aSDLbaFQKNNdAvj6G3DhsEY7U__Ff044MLswmUpSK2/s512/nfl-team.jpg" }
+        ];
+
+        // Initialize item quantities
+        items.forEach(item => {
+            item.quantity = 1; // Default quantity to buy/sell
+            item.owned = 0;    // Number of items owned
+        });
+
+        let balance = 1000000000000;
+
+        const balanceDisplay = document.getElementById('balance-display');
+        const itemsGrid = document.getElementById('items-grid');
+        const receiptList = document.getElementById('receipt-list');
+        const grandTotalDisplay = document.getElementById('grand-total');
+        const themeToggle = document.getElementById('theme-toggle');
+        const receiptContainer = document.getElementById('receipt-container');
+        const receiptToggle = document.getElementById('receipt-toggle');
+
+        // Function to format numbers as currency
+        const formatCurrency = (amount) => {
+            return new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: 'USD',
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0
+            }).format(amount);
+        };
+        
+        const formatNumber = (num) => {
+             return new Intl.NumberFormat('en-US').format(num);
+        }
+
+        // Function to render all the items
+        const renderItems = () => {
+            itemsGrid.innerHTML = ''; // Clear previous items
+            items.forEach((item) => {
+                const card = document.createElement('div');
+                card.className = 'item-card';
+                card.innerHTML = `
+                    <img src="${item.image}" alt="${item.title}" onerror="this.onerror=null;this.src='https://placehold.co/512x512/30363d/8b949e?text=Image+Not+Found';">
+                    <h4>${item.title}</h4>
+                    <p class="item-price">${formatCurrency(item.price)}</p>
+                    <p class="item-owned">You own: ${formatNumber(item.owned)}</p>
+                    <div class="quantity-controls">
+                        <button class="minus-btn" data-item-id="${item.id}">-</button>
+                        <input class="quantity-input" type="number" min="0" value="${item.quantity}" data-item-id="${item.id}">
+                        <button class="plus-btn" data-item-id="${item.id}">+</button>
+                    </div>
+                    <div class="action-buttons">
+                        <button class="buy-button" data-item-id="${item.id}">Buy</button>
+                        <button class="sell-button" data-item-id="${item.id}">Sell</button>
+                    </div>
+                `;
+                itemsGrid.appendChild(card);
+            });
+            addEventListeners();
+            updateAllCards();
+        };
+
+        // Function to add event listeners to all dynamic elements
+        const addEventListeners = () => {
+            document.querySelectorAll('.plus-btn').forEach(button => {
+                button.addEventListener('click', (e) => handleQuantityChange(e.target.dataset.itemId, 1));
+            });
+
+            document.querySelectorAll('.minus-btn').forEach(button => {
+                button.addEventListener('click', (e) => handleQuantityChange(e.target.dataset.itemId, -1));
+            });
+            
+            document.querySelectorAll('.quantity-input').forEach(input => {
+                input.addEventListener('input', (e) => {
+                    let value = parseInt(e.target.value, 10);
+                    if (isNaN(value) || value < 0) {
+                        value = 0;
+                    }
+                    const itemId = e.target.dataset.itemId;
+                    const item = items.find(i => i.id == itemId);
+                    item.quantity = value;
+                    updateCard(item);
+                });
+            });
+
+            document.querySelectorAll('.buy-button').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const itemId = parseInt(e.target.dataset.itemId);
+                    const item = items.find(i => i.id === itemId);
+                    const cost = item.price * item.quantity;
+
+                    if (item.quantity > 0 && balance >= cost) {
+                        balance -= cost;
+                        item.owned += item.quantity;
+                        updateAll();
+                    }
+                });
+            });
+            
+            document.querySelectorAll('.sell-button').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const itemId = parseInt(e.target.dataset.itemId);
+                    const item = items.find(i => i.id === itemId);
+
+                    if (item.quantity > 0 && item.owned >= item.quantity) {
+                        balance += item.price * item.quantity;
+                        item.owned -= item.quantity;
+                        updateAll();
+                    }
+                });
+            });
+        };
+        
+        const handleQuantityChange = (itemId, change) => {
+            const item = items.find(i => i.id == itemId);
+            if (item) {
+                item.quantity = Math.max(0, item.quantity + change);
+                updateCard(item);
+            }
+        };
+        
+        const updateAll = () => {
+            updateBalance();
+            renderReceipt();
+            updateAllCards();
+        }
+
+        // Function to update the balance display
+        const updateBalance = () => {
+            balanceDisplay.textContent = formatCurrency(balance);
+        };
+
+        const updateAllCards = () => {
+            items.forEach(updateCard);
+        };
+        
+        // Function to update a single item card
+        const updateCard = (item) => {
+            const card = itemsGrid.querySelector(`.buy-button[data-item-id="${item.id}"]`)?.closest('.item-card');
+            if (!card) return;
+
+            const buyButton = card.querySelector('.buy-button');
+            const sellButton = card.querySelector('.sell-button');
+            const plusButton = card.querySelector('.plus-btn');
+            const minusButton = card.querySelector('.minus-btn');
+            const quantityInput = card.querySelector('.quantity-input');
+            const ownedDisplay = card.querySelector('.item-owned');
+            
+            const cost = item.price * item.quantity;
+
+            buyButton.disabled = item.quantity <= 0 || cost > balance;
+            sellButton.disabled = item.quantity <= 0 || item.quantity > item.owned;
+            plusButton.disabled = item.price * (item.quantity + 1) > balance;
+            minusButton.disabled = item.quantity <= 0;
+            
+            if (quantityInput.value != item.quantity) {
+                quantityInput.value = item.quantity;
+            }
+            ownedDisplay.textContent = `You own: ${formatNumber(item.owned)}`;
+        };
+
+        // Function to render the receipt/assets list
+        const renderReceipt = () => {
+            receiptList.innerHTML = '';
+            let grandTotal = 0;
+            const ownedItems = items.filter(item => item.owned > 0);
+
+            if (ownedItems.length === 0) {
+                receiptList.innerHTML = '<li class="receipt-item">You don\'t own any assets yet.</li>';
+            } else {
+                 ownedItems.forEach(item => {
+                    const totalValue = item.price * item.owned;
+                    const receiptItem = document.createElement('li');
+                    receiptItem.className = 'receipt-item';
+                    receiptItem.innerHTML = `
+                        <span class="receipt-item-details">
+                           <span class="receipt-item-name">${item.title}</span> <span>x${formatNumber(item.owned)}</span>
+                        </span>
+                        <span class="receipt-item-value">${formatCurrency(totalValue)}</span>
+                    `;
+                    receiptList.appendChild(receiptItem);
+                    grandTotal += totalValue;
+                });
+            }
+
+            grandTotalDisplay.textContent = `Total Value: ${formatCurrency(grandTotal)}`;
+        };
+
+        // --- Event Listeners for Static Elements ---
+        
+        // Theme toggle
+        themeToggle.addEventListener('click', () => {
+            document.body.classList.toggle('light-mode');
+            const isLightMode = document.body.classList.contains('light-mode');
+            themeToggle.querySelector('i').className = isLightMode ? 'fas fa-moon' : 'fas fa-sun';
+        });
+        
+        // Receipt toggle
+        receiptToggle.addEventListener('click', () => {
+            const isHidden = receiptContainer.classList.toggle('hidden');
+            const icon = receiptToggle.querySelector('i');
+            icon.style.transform = isHidden ? 'rotate(0deg)' : 'rotate(180deg)';
+             if(!isHidden) {
+                receiptContainer.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            }
+        });
+
+
+        // Initial setup on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            renderItems();
+            updateBalance();
+            renderReceipt();
+            // Initially hide the receipt on load
+            receiptContainer.classList.add('hidden');
+        });
+
+        // --- Game Logic End ---
+    </script>
+</body>
+</html>
