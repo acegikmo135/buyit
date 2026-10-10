@@ -1,0 +1,25 @@
+name: AiSheet Windows build
+on:
+  push:
+    paths: ['aisheet/**', '.github/workflows/aisheet-windows.yml']
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults: { run: { working-directory: aisheet } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: aisheet/package-lock.json }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: 'aisheet/src-tauri -> target' }
+      - run: npm ci
+      - run: npm test
+      - run: npx tauri build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AiSheet-windows
+          path: |
+            aisheet/src-tauri/target/release/bundle/nsis/*.exe
+            aisheet/src-tauri/target/release/bundle/msi/*.msi
