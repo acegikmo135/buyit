@@ -1,0 +1,29 @@
+# Copy to .github/workflows/issue-triage.yml in the repository you want to protect,
+# and copy the `triage/` package to the repo root (or vendor it as a submodule).
+# Cost: free. GitHub Actions minutes are free for public repos; GEMINI_API_KEY is optional.
+name: issue-triage
+on:
+  issues:
+    types: [opened, reopened]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number to triage
+        required: true
+permissions:
+  issues: write
+  contents: read
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m triage.run
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}   # optional: free tier key from aistudio.google.com
