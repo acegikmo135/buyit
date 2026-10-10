@@ -34,7 +34,7 @@ await page.click('#ask');
 check((await page.textContent('#answer')).toLowerCase().includes('pets'), 'offline Q&A quotes the pets clause');
 
 await page.click('#sample2');
-await page.waitForFunction(() => document.querySelector('#report').textContent.includes('low'));
+await page.waitForFunction(() => /· 0 flagged/.test(document.querySelector('#report').textContent));
 check((await page.locator('.finding.high').count()) === 0, 'fair sample has no high-severity findings');
 
 // hostile lease text must not be interpreted as HTML
