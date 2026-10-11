@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LocalMind – In-Browser AI</title>
+<meta name="description" content="A private AI chatbot that runs entirely in your browser on WebGPU. No install, no server, no API key. Chat, write code, and watch live speed and resource stats.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%237c5cff'/%3E%3Cpath d='M9 21V11l7 7 7-7v10' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #0b0d14; --bg2: #10131c; --panel: #141826; --panel2: #1a1f31; --line: #262c42;
+  --text: #e8ebf7; --muted: #8b93b3; --dim: #5d6584;
+  --accent: #7c5cff; --accent2: #22d3ee; --good: #34d399; --warn: #fbbf24; --bad: #f87171;
+  --user: #1d2340; --code: #0a0c13; --shadow: 0 8px 30px rgba(0,0,0,.35);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Inter, sans-serif;
+}
+:root[data-theme="light"] {
+  --bg: #f4f5fb; --bg2: #eceef8; --panel: #ffffff; --panel2: #f6f7fd; --line: #dde0f0;
+  --text: #1a1d2e; --muted: #5d6584; --dim: #8b93b3; --user: #e8eaff; --code: #f1f2fa;
+  --shadow: 0 8px 30px rgba(40,50,100,.12);
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); overflow: hidden; -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- layout ---------- */
+.app { display: grid; grid-template-rows: 52px 1fr; height: 100dvh; }
+.top { display: flex; align-items: center; gap: 12px; padding: 0 16px; min-width: 0; overflow: hidden; border-bottom: 1px solid var(--line); background: var(--bg2); }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .2px; }
+.logo { width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg, var(--accent), var(--accent2)); display: grid; place-items: center; box-shadow: 0 0 18px rgba(124,92,255,.5); }
+.logo svg { width: 16px; height: 16px; }
+.brand small { color: var(--muted); font-weight: 500; }
+.chip { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--muted); font-size: 12px; max-width: 46vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: none; }
+.dot.ready { background: var(--good); box-shadow: 0 0 8px var(--good); }
+.dot.busy { background: var(--warn); animation: pulse 1s infinite; }
+.dot.err { background: var(--bad); }
+@keyframes pulse { 50% { opacity: .3; } }
+.spacer { flex: 1; }
+.icon-btn { background: transparent; border: 1px solid var(--line); border-radius: 8px; height: 32px; min-width: 32px; padding: 0 9px; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.icon-btn:hover { color: var(--text); background: var(--panel); }
+.icon-btn svg { width: 16px; height: 16px; }
+.only-narrow { display: none; }
+
+.main { display: grid; grid-template-columns: 300px minmax(0, 1fr) 340px; min-height: 0; }
+aside { background: var(--bg2); overflow-y: auto; padding: 14px; min-height: 0; }
+#left { border-right: 1px solid var(--line); }
+#right { border-left: 1px solid var(--line); }
+.chat { display: grid; grid-template-rows: 1fr auto; min-height: 0; min-width: 0; }
+
+/* ---------- cards / forms ---------- */
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+.card h3 { margin: 0 0 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: 600; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.card h3 .tag { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--dim); font-size: 11px; }
+select, textarea, input[type=number] { width: 100%; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; outline: none; }
+select:focus, textarea:focus, input:focus-visible { border-color: var(--accent); }
+.btn { border: 0; border-radius: 9px; padding: 9px 14px; font-weight: 600; background: linear-gradient(135deg, var(--accent), #5b8cff); color: #fff; width: 100%; box-shadow: 0 4px 16px rgba(124,92,255,.35); transition: transform .08s, opacity .2s; }
+.btn:hover { transform: translateY(-1px); }
+.btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+.btn.ghost { background: var(--panel2); color: var(--text); box-shadow: none; border: 1px solid var(--line); }
+.btn.sm { padding: 5px 10px; font-size: 12px; width: auto; }
+.progress { height: 6px; background: var(--panel2); border-radius: 6px; overflow: hidden; margin-top: 10px; }
+.progress > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .25s; }
+.prog-text { font-size: 11px; color: var(--muted); margin-top: 6px; word-break: break-word; min-height: 15px; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; text-align: right; font-family: var(--mono); font-size: 11.5px; overflow-wrap: anywhere; }
+.badge { display: inline-block; font-size: 10px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); margin-left: 4px; vertical-align: middle; }
+.badge.good { color: var(--good); border-color: rgba(52,211,153,.4); }
+.badge.warn { color: var(--warn); border-color: rgba(251,191,36,.4); }
+
+.param { margin-bottom: 11px; }
+.param label { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+.param label b { color: var(--text); font-family: var(--mono); font-weight: 500; }
+input[type=range] { width: 100%; accent-color: var(--accent); margin: 0; }
+.row { display: flex; gap: 8px; }
+.row > * { flex: 1; }
+.hint { font-size: 11px; color: var(--dim); margin-top: 4px; }
+
+/* ---------- chat ---------- */
+.messages { overflow-y: auto; padding: 22px 0 8px; scroll-behavior: smooth; }
+.wrap { max-width: 820px; margin: 0 auto; padding: 0 18px; }
+.msg { display: flex; gap: 12px; margin-bottom: 20px; }
+.avatar { width: 30px; height: 30px; border-radius: 9px; flex: none; display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+.msg.user .avatar { background: var(--user); color: var(--accent2); border: 1px solid var(--line); }
+.msg.assistant .avatar { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
+.bubble { min-width: 0; flex: 1; }
+.msg.user .bubble .body { background: var(--user); border: 1px solid var(--line); border-radius: 12px; padding: 9px 13px; display: inline-block; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
+.body { overflow-wrap: anywhere; }
+.body > :first-child { margin-top: 0; } .body > :last-child { margin-bottom: 0; }
+.body p { margin: .6em 0; } .body ul, .body ol { padding-left: 1.4em; margin: .6em 0; }
+.body h1, .body h2, .body h3, .body h4 { margin: 1em 0 .4em; line-height: 1.25; }
+.body h1 { font-size: 1.35em; } .body h2 { font-size: 1.2em; } .body h3, .body h4 { font-size: 1.05em; }
+.body blockquote { margin: .6em 0; padding: 2px 12px; border-left: 3px solid var(--accent); color: var(--muted); }
+.body a { color: var(--accent2); }
+.body hr { border: 0; border-top: 1px solid var(--line); margin: 1em 0; }
+.body :not(pre) > code { background: var(--panel2); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; font: 12.5px var(--mono); }
+.body table { border-collapse: collapse; margin: .6em 0; display: block; overflow-x: auto; }
+.body th, .body td { border: 1px solid var(--line); padding: 4px 10px; }
+.body th { background: var(--panel2); }
+.codeblock { margin: .8em 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--code); }
+.codehead { display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 12px; background: var(--panel); border-bottom: 1px solid var(--line); font: 11.5px var(--mono); color: var(--muted); }
+.codehead .btn { margin-left: auto; } .codehead .btn + .btn { margin-left: 0; }
+.codeblock pre { margin: 0; padding: 12px; overflow-x: auto; font: 12.5px/1.55 var(--mono); }
+.codeblock .out { border-top: 1px solid var(--line); padding: 8px 12px; font: 12px var(--mono); white-space: pre-wrap; color: var(--good); max-height: 220px; overflow: auto; }
+.codeblock iframe { width: 100%; height: 280px; border: 0; border-top: 1px solid var(--line); background: #fff; display: block; }
+.tk-c { color: #6b7394; font-style: italic; } .tk-s { color: #a5e075; } .tk-n { color: #f0a96b; } .tk-k { color: #c792ea; }
+:root[data-theme="light"] .tk-s { color: #2e7d32; } :root[data-theme="light"] .tk-k { color: #7c3aed; } :root[data-theme="light"] .tk-n { color: #c2410c; }
+details.think { margin: .4em 0 .8em; border: 1px dashed var(--line); border-radius: 10px; padding: 6px 12px; color: var(--muted); font-size: 13px; }
+details.think summary { cursor: pointer; font-size: 12px; }
+.cursor::after { content: "▍"; color: var(--accent2); animation: pulse 1s infinite; margin-left: 1px; }
+.stats-line { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; font: 11px var(--mono); color: var(--muted); }
+.stats-line span { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; }
+.stats-line span b { color: var(--accent2); font-weight: 600; }
+.msg-actions { margin-top: 6px; display: flex; gap: 6px; }
+.msg-actions button { background: none; border: 0; color: var(--dim); font-size: 12px; padding: 2px 6px; border-radius: 6px; }
+.msg-actions button:hover { color: var(--text); background: var(--panel); }
+
+.empty { text-align: center; padding: 8vh 18px 0; }
+.empty h1 { font-size: 30px; margin: 0 0 6px; background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.empty p { color: var(--muted); max-width: 520px; margin: 0 auto 22px; }
+.suggest { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; max-width: 620px; margin: 0 auto; }
+.suggest button { text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; color: var(--text); }
+.suggest button:hover { border-color: var(--accent); transform: translateY(-1px); }
+.suggest small { display: block; color: var(--muted); margin-top: 2px; }
+.banner { margin: 0 auto 18px; max-width: 620px; text-align: left; border: 1px solid rgba(248,113,113,.4); background: rgba(248,113,113,.08); border-radius: 12px; padding: 12px 14px; color: var(--text); }
+.banner.info { border-color: rgba(34,211,238,.35); background: rgba(34,211,238,.06); }
+
+.composer-wrap { padding: 8px 18px 14px; }
+.composer { max-width: 820px; margin: 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 8px 8px 8px 14px; display: flex; gap: 10px; align-items: flex-end; box-shadow: var(--shadow); }
+.composer:focus-within { border-color: var(--accent); }
+.composer textarea { border: 0; background: transparent; resize: none; max-height: 200px; padding: 8px 0; }
+.send { width: 40px; height: 40px; border-radius: 12px; border: 0; background: linear-gradient(135deg, var(--accent), #5b8cff); color: #fff; display: grid; place-items: center; flex: none; }
+.send:disabled { opacity: .4; cursor: not-allowed; }
+.send.stop { background: var(--bad); }
+.send svg { width: 18px; height: 18px; }
+.ctx { max-width: 820px; margin: 8px auto 0; display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--dim); }
+.ctx .bar { flex: 1; height: 4px; background: var(--panel); border-radius: 4px; overflow: hidden; }
+.ctx .bar i { display: block; height: 100%; width: 0; background: var(--accent2); transition: width .3s; }
+
+/* ---------- dashboard ---------- */
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.metric { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+.metric .lbl { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; display: flex; justify-content: space-between; }
+.metric .val { font: 600 18px var(--mono); margin: 1px 0 3px; white-space: nowrap; }
+.metric .val small { font-size: 11px; color: var(--muted); font-weight: 400; }
+.metric canvas { width: 100%; height: 34px; display: block; }
+.metric.wide { grid-column: span 2; }
+.metric .sub { font-size: 10.5px; color: var(--dim); }
+.big-speed { display: flex; align-items: baseline; gap: 8px; }
+.big-speed b { font: 700 34px var(--mono); background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.big-speed span { color: var(--muted); }
+.state { margin-left: auto; font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.state.prefill { color: var(--warn); border-color: rgba(251,191,36,.5); }
+.state.decode { color: var(--good); border-color: rgba(52,211,153,.5); }
+.meter { height: 6px; border-radius: 6px; background: var(--bg2); overflow: hidden; margin-top: 4px; }
+.meter i { display: block; height: 100%; width: 0; background: var(--good); transition: width .4s, background .4s; }
+pre.raw { margin: 8px 0 0; font: 11px/1.4 var(--mono); color: var(--muted); white-space: pre-wrap; }
+
+.scrim { display: none; }
+
+/* ---------- responsive ---------- */
+@media (max-width: 1180px) {
+  .main { grid-template-columns: 280px minmax(0, 1fr); }
+  #right { position: fixed; top: 52px; right: 0; bottom: 0; width: min(360px, 92vw); z-index: 30; transform: translateX(100%); transition: transform .25s; box-shadow: var(--shadow); }
+  #right.open { transform: none; }
+  .only-narrow { display: inline-flex; }
+}
+@media (max-width: 800px) {
+  .main { grid-template-columns: minmax(0, 1fr); }
+  #left { position: fixed; top: 52px; left: 0; bottom: 0; width: min(340px, 92vw); z-index: 30; transform: translateX(-100%); transition: transform .25s; box-shadow: var(--shadow); }
+  #left.open { transform: none; }
+  .suggest { grid-template-columns: 1fr; }
+  .brand small, .hide-sm, .brand > span { display: none; }
+  .top { gap: 8px; padding: 0 10px; }
+  .scrim.on { display: block; position: fixed; inset: 52px 0 0 0; background: rgba(0,0,0,.5); z-index: 20; }
+  .chip { max-width: none; }
+  .spacer { display: none; }
+  .top .chip { flex: 1 1 auto; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <button class="icon-btn" id="btnLeft" title="Model & parameters" aria-label="Toggle model panel" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <div class="brand">
+      <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 18V7l7 7 7-7v11"/></svg></div>
+      <span>LocalMind <small>· runs 100% in your browser</small></span>
+    </div>
+    <div class="chip" id="statusChip"><span class="dot" id="statusDot"></span><span id="statusText">No model loaded</span></div>
+    <div class="spacer"></div>
+    <button class="icon-btn hide-sm" id="btnExport" title="Export chat as Markdown">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v3h16v-3"/></svg>
+    </button>
+    <button class="icon-btn" id="btnClear" title="New chat">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg><span class="hide-sm">New</span>
+    </button>
+    <button class="icon-btn" id="btnTheme" title="Toggle theme">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/></svg>
+    </button>
+    <button class="icon-btn only-narrow" id="btnRight" title="Live stats" aria-label="Toggle stats panel">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span class="hide-sm">Stats</span>
+    </button>
+  </header>
+
+  <div class="main">
+    <!-- ================= LEFT: model + parameters ================= -->
+    <aside id="left">
+      <div class="card">
+        <h3>Model <span class="tag" id="gpuTag"></span></h3>
+        <select id="modelSelect" aria-label="Model"></select>
+        <dl class="kv" id="modelInfo" style="margin-top:10px"></dl>
+        <div class="row" style="margin-top:12px">
+          <button class="btn" id="btnLoad">Load model</button>
+        </div>
+        <div class="progress"><i id="progBar"></i></div>
+        <div class="prog-text" id="progText"></div>
+        <div class="hint">Weights download once, then are cached by your browser for instant reloads. <a href="#" id="lnkDelCache" style="color:var(--muted)">Remove cached copy</a></div>
+      </div>
+
+      <div class="card">
+        <h3>System prompt</h3>
+        <select id="presetSelect" aria-label="System prompt preset" style="margin-bottom:8px"></select>
+        <textarea id="sysPrompt" rows="4" spellcheck="false"></textarea>
+      </div>
+
+      <div class="card">
+        <h3>Generation parameters <a href="#" id="lnkResetParams" class="tag" style="color:var(--muted)">reset</a></h3>
+        <div id="paramBox"></div>
+        <div class="param">
+          <label>Context window <b id="ctxVal"></b></label>
+          <select id="ctxSelect">
+            <option value="0">Model default</option>
+            <option value="2048">2,048 tokens</option>
+            <option value="4096">4,096 tokens</option>
+            <option value="8192">8,192 tokens</option>
+          </select>
+          <div class="hint">Applies when the model loads. Bigger = more VRAM.</div>
+        </div>
+        <div class="param" style="margin-bottom:0">
+          <label>Seed <b>optional</b></label>
+          <input type="number" id="seed" placeholder="random" step="1">
+        </div>
+      </div>
+    </aside>
+
+    <!-- ================= CENTER: chat ================= -->
+    <section class="chat">
+      <div class="messages" id="messages"><div class="wrap" id="thread"></div></div>
+      <div class="composer-wrap">
+        <div class="composer">
+          <textarea id="input" rows="1" placeholder="Message LocalMind… (Enter to send, Shift+Enter for newline)" aria-label="Message"></textarea>
+          <button class="send" id="btnSend" title="Send" aria-label="Send">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m0 0l-6 6m6-6l6 6"/></svg>
+          </button>
+        </div>
+        <div class="ctx"><span id="ctxText">Context 0 / 4096</span><div class="bar"><i id="ctxBar"></i></div><span id="ctxHint">Local · private · offline after first download</span></div>
+      </div>
+    </section>
+
+    <!-- ================= RIGHT: live dashboard ================= -->
+    <aside id="right">
+      <div class="card">
+        <h3>Inference speed <span class="state" id="infState">idle</span></h3>
+        <div class="big-speed"><b id="liveTps">0.0</b><span>tokens/s</span></div>
+        <canvas id="cvTps" height="60" style="width:100%;height:60px;margin-top:6px"></canvas>
+        <div class="grid2" style="margin-top:10px">
+          <div class="metric"><div class="lbl">First token</div><div class="val" id="sTtft">–</div></div>
+          <div class="metric"><div class="lbl">Prefill</div><div class="val" id="sPrefill">–</div></div>
+          <div class="metric"><div class="lbl">Decode</div><div class="val" id="sDecode">–</div></div>
+          <div class="metric"><div class="lbl">Total time</div><div class="val" id="sE2e">–</div></div>
+          <div class="metric"><div class="lbl">Prompt tok</div><div class="val" id="sPromptTok">–</div></div>
+          <div class="metric"><div class="lbl">Output tok</div><div class="val" id="sOutTok">–</div></div>
+          <div class="metric"><div class="lbl">Per token</div><div class="val" id="sPerTok">–</div></div>
+          <div class="metric"><div class="lbl">Session avg / peak</div><div class="val" id="sAvg" style="font-size:14px">–</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Live system resources <span class="tag">updates every second</span></h3>
+        <div class="grid2">
+          <div class="metric" title="Share of the last second the page's main thread was blocked (long tasks). Inference runs in a Web Worker, so this should stay low and the UI smooth.">
+            <div class="lbl"><span>UI thread</span></div><div class="val" id="mCpu">0<small>%</small></div><canvas id="cvCpu" height="34"></canvas></div>
+          <div class="metric" title="Rendered frames per second of this page.">
+            <div class="lbl"><span>Frame rate</span></div><div class="val" id="mFps">–<small> fps</small></div><canvas id="cvFps" height="34"></canvas></div>
+          <div class="metric" title="JavaScript heap used by this tab (Chromium only).">
+            <div class="lbl"><span>JS heap</span></div><div class="val" id="mHeap">n/a</div><canvas id="cvHeap" height="34"></canvas></div>
+          <div class="metric" title="Decode throughput relative to the best speed seen this session. The browser cannot read true GPU utilisation.">
+            <div class="lbl"><span>GPU activity</span></div><div class="val" id="mGpu">0<small>%</small></div><canvas id="cvGpu" height="34"></canvas></div>
+          <div class="metric wide" title="Estimated GPU memory needed by the loaded model (weights + KV cache), from the model's published requirement. WebGPU does not expose live VRAM usage.">
+            <div class="lbl"><span>Model VRAM (est.)</span><span id="mVramPct"></span></div>
+            <div class="val" id="mVram">–</div>
+            <div class="meter"><i id="mVramBar"></i></div>
+            <div class="sub" id="mVramSub">Load a model to see its footprint</div>
+          </div>
+          <div class="metric wide" title="Browser storage used by this site, including cached model weights.">
+            <div class="lbl"><span>Browser storage</span><span id="mStoPct"></span></div>
+            <div class="val" id="mSto">–</div>
+            <div class="meter"><i id="mStoBar" style="background:var(--accent2)"></i></div>
+          </div>
+        </div>
+        <dl class="kv" style="margin-top:12px" id="sysInfo"></dl>
+      </div>
+
+      <div class="card">
+        <h3>Model & engine details</h3>
+        <dl class="kv" id="engineInfo"></dl>
+        <pre class="raw" id="rawStats"></pre>
+      </div>
+    </aside>
+  </div>
+  <div class="scrim" id="scrim"></div>
+</div>
+
+<script type="module">
+/* =====================================================================
+   LocalMind – in-browser LLM chat on WebGPU (WebLLM / MLC)
+   Everything runs client side. No server, no API key, no install.
+   ===================================================================== */
+const WEBLLM_VERSION = "0.2.79";
+const WEBLLM_URL = `https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@${WEBLLM_VERSION}/+esm`;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (n, d = 1) => (Number.isFinite(n) ? n.toFixed(d) : "–");
+const fmtBytes = (b) => !Number.isFinite(b) ? "–" : b >= 2 ** 30 ? (b / 2 ** 30).toFixed(2) + " GB" : b >= 2 ** 20 ? (b / 2 ** 20).toFixed(0) + " MB" : (b / 1024).toFixed(0) + " KB";
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("lm." + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("lm." + k, JSON.stringify(v)); } catch {} },
+};
+
+/* ---------------- model catalogue ----------------
+   `base` is the q4f16_1 build; devices without WebGPU "shader-f16" fall back to q4f32_1.
+   vram/params are shown before the engine library is loaded; real values replace them once it is. */
+const MODELS = [
+  { id: "SmolLM2-360M-Instruct", label: "SmolLM2 360M", params: "360M", kind: "Tiny chat", vram: 376, dl: 230, rec: "instant start, weakest answers" },
+  { id: "Qwen2.5-0.5B-Instruct", label: "Qwen2.5 0.5B", params: "0.5B", kind: "Fast chat", vram: 945, dl: 290, rec: "best first model", def: true },
+  { id: "Qwen2.5-Coder-0.5B-Instruct", label: "Qwen2.5 Coder 0.5B", params: "0.5B", kind: "Coding", vram: 945, dl: 290, rec: "tiny code helper" },
+  { id: "Llama-3.2-1B-Instruct", label: "Llama 3.2 1B", params: "1.2B", kind: "Chat", vram: 879, dl: 700, rec: "good general chat" },
+  { id: "Qwen3-0.6B", label: "Qwen3 0.6B (thinking)", params: "0.6B", kind: "Reasoning", vram: 1403, dl: 400, rec: "shows its reasoning" },
+  { id: "Qwen2.5-1.5B-Instruct", label: "Qwen2.5 1.5B", params: "1.5B", kind: "Chat", vram: 1630, dl: 900, rec: "balanced" },
+  { id: "Qwen2.5-Coder-1.5B-Instruct", label: "Qwen2.5 Coder 1.5B", params: "1.5B", kind: "Coding", vram: 1630, dl: 900, rec: "best small coder" },
+  { id: "Qwen3-1.7B", label: "Qwen3 1.7B (thinking)", params: "1.7B", kind: "Reasoning", vram: 2037, dl: 1100, rec: "stronger reasoning" },
+  { id: "gemma-2-2b-it", label: "Gemma 2 2B", params: "2.6B", kind: "Chat", vram: 1895, dl: 1500, rec: "polished writing" },
+  { id: "Llama-3.2-3B-Instruct", label: "Llama 3.2 3B", params: "3.2B", kind: "Chat", vram: 2264, dl: 1800, rec: "strong general chat" },
+  { id: "Qwen2.5-Coder-3B-Instruct", label: "Qwen2.5 Coder 3B", params: "3.1B", kind: "Coding", vram: 2505, dl: 1800, rec: "very good coder" },
+  { id: "Phi-3.5-mini-instruct", label: "Phi 3.5 mini", params: "3.8B", kind: "Chat/Code", vram: 3672, dl: 2200, rec: "needs ≥4 GB VRAM" },
+  { id: "Qwen3-4B", label: "Qwen3 4B (thinking)", params: "4B", kind: "Reasoning", vram: 3432, dl: 2300, rec: "needs ≥4 GB VRAM" },
+  { id: "Qwen2.5-Coder-7B-Instruct", label: "Qwen2.5 Coder 7B", params: "7.6B", kind: "Coding", vram: 5107, dl: 4300, rec: "best quality, needs ≥6 GB VRAM" },
+];
+const QUANT_F16 = "q4f16_1", QUANT_F32 = "q4f32_1";
+
+const PRESETS = {
+  assistant: ["General assistant", "You are a helpful, concise and friendly assistant. Answer clearly. If you are unsure, say so instead of guessing."],
+  coder: ["Expert coder", "You are an expert software engineer. Give correct, idiomatic, well-commented code in fenced code blocks with the language tag, then a short explanation. Prefer simple solutions."],
+  tutor: ["Patient tutor", "You are a patient tutor. Explain step by step in simple language and use small examples. Check understanding at the end."],
+  terse: ["Ultra concise", "Reply in as few words as possible while staying correct."],
+  none: ["No system prompt", ""],
+};
+
+const PARAMS = [
+  { key: "temperature", label: "Temperature", min: 0, max: 2, step: 0.05, def: 0.7, hint: "Higher = more creative" },
+  { key: "top_p", label: "Top-p", min: 0.05, max: 1, step: 0.05, def: 0.95 },
+  { key: "max_tokens", label: "Max new tokens", min: 64, max: 4096, step: 64, def: 1024 },
+  { key: "frequency_penalty", label: "Frequency penalty", min: -2, max: 2, step: 0.1, def: 0 },
+  { key: "presence_penalty", label: "Presence penalty", min: -2, max: 2, step: 0.1, def: 0 },
+  { key: "repetition_penalty", label: "Repetition penalty", min: 0.8, max: 1.5, step: 0.01, def: 1.0 },
+];
+
+/* ---------------- state ---------------- */
+const S = {
+  webllm: null, engine: null, worker: null, usingWorker: false,
+  loadedModelId: null, loadedRecord: null, loading: false, generating: false, abort: false,
+  messages: store.get("messages", []),          // [{role, content, stats?}]
+  params: { ...Object.fromEntries(PARAMS.map((p) => [p.key, p.def])), ...store.get("params", {}) },
+  adapter: null, gpuInfo: null, hasF16: false, ctxSize: 4096,
+  tpsHistory: [], liveTps: 0, peakTps: 0, tpsSamples: [], genState: "idle",
+  totalOut: 0, runs: 0, lastPromptTokens: 0, cachedIds: new Set(),
+};
+
+/* ================== markdown (safe: everything is escaped first) ================== */
+const KW = {
+  js: "async await break case catch class const continue debugger default delete do else export extends finally for from function if import in instanceof let new of return static super switch this throw try typeof var void while with yield true false null undefined",
+  py: "and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield self print",
+  c: "auto bool break case catch char class const continue default delete do double else enum extern false float for goto if inline int long namespace new nullptr operator private protected public register return short signed sizeof static struct switch template this throw true try typedef union unsigned using virtual void volatile while fn let mut pub impl use mod match loop func package interface go defer chan map string byte",
+  sh: "if then else elif fi for while do done case esac function in echo export cd ls cat grep sed awk git npm pip sudo return exit local",
+  sql: "select from where insert into values update set delete create table drop alter join left right inner outer on group by order having limit and or not null as distinct union primary key foreign references index",
+};
+const LANG = { javascript: "js", js: "js", jsx: "js", ts: "js", typescript: "js", tsx: "js", node: "js", json: "js", python: "py", py: "py", c: "c", cpp: "c", "c++": "c", java: "c", cs: "c", csharp: "c", go: "c", rust: "c", rs: "c", php: "c", kotlin: "c", swift: "c", bash: "sh", sh: "sh", shell: "sh", zsh: "sh", sql: "sql", css: "c" };
+function highlight(code, lang) {
+  const fam = LANG[(lang || "").toLowerCase()];
+  if (!fam) return esc(code);
+  const kws = new Set(KW[fam].split(" "));
+  const hashComment = fam === "py" || fam === "sh";
+  const re = new RegExp(
+    (hashComment ? "(#[^\\n]*)" : "(\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?\\*\\/)") + "|" +
+    "(\"(?:\\\\.|[^\"\\\\\\n])*\"|'(?:\\\\.|[^'\\\\\\n])*'|`(?:\\\\[\\s\\S]|[^`\\\\])*`)|" +
+    "(\\b\\d[\\d_]*(?:\\.\\d+)?\\b)|(\\b[A-Za-z_$][\\w$]*\\b)", "g");
+  let out = "", last = 0, m;
+  while ((m = re.exec(code))) {
+    out += esc(code.slice(last, m.index));
+    const t = esc(m[0]);
+    if (m[1]) out += `<span class="tk-c">${t}</span>`;
+    else if (m[2]) out += `<span class="tk-s">${t}</span>`;
+    else if (m[3]) out += `<span class="tk-n">${t}</span>`;
+    else if (m[4] && (kws.has(m[4]) || (fam === "sql" && kws.has(m[4].toLowerCase())))) out += `<span class="tk-k">${t}</span>`;
+    else out += t;
+    last = m.index + m[0].length;
+  }
+  return out + esc(code.slice(last));
+}
+
+function inline(s) {
+  // s is raw text; escape then re-apply a small safe subset of markdown
+  const codes = [];
+  s = s.replace(/`([^`\n]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
+  s = esc(s);
+  s = s.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+       .replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, "$1<em>$2</em>")
+       .replace(/~~([^~\n]+)~~/g, "<del>$1</del>")
+       .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${esc(codes[+i])}</code>`);
+}
+
+function renderMarkdown(src, streaming) {
+  // split off <think> sections (reasoning models)
+  let thinkHtml = "";
+  const tm = src.match(/^\s*<think>([\s\S]*?)(<\/think>|$)/);
+  if (tm) {
+    const done = tm[2] === "</think>";
+    thinkHtml = `<details class="think"${done ? "" : " open"}><summary>${done ? "Reasoning" : "Thinking…"}</summary>${esc(tm[1].trim()).replace(/\n/g, "<br>")}</details>`;
+    src = src.slice(tm[0].length);
+  }
+  const lines = src.replace(/\r/g, "").split("\n");
+  const html = [];
+  let i = 0, para = [];
+  const flush = () => { if (para.length) { html.push("<p>" + inline(para.join("\n")).replace(/\n/g, "<br>") + "</p>"); para = []; } };
+  while (i < lines.length) {
+    const ln = lines[i];
+    let m;
+    if ((m = ln.match(/^\s*```+\s*([\w+#.-]*)\s*$/))) {
+      flush();
+      const lang = m[1] || "";
+      const buf = [];
+      i++;
+      while (i < lines.length && !/^\s*```+\s*$/.test(lines[i])) buf.push(lines[i++]);
+      const closed = i < lines.length;
+      i++;
+      const code = buf.join("\n");
+      const runnable = closed && /^(js|javascript|html)$/i.test(lang);
+      html.push(`<div class="codeblock"><div class="codehead"><span>${esc(lang || "code")}</span>` +
+        (runnable ? `<button class="btn ghost sm" data-act="run" data-lang="${esc(lang.toLowerCase())}">▶ Run</button>` : "") +
+        `<button class="btn ghost sm" data-act="copy" ${runnable ? "" : 'style="margin-left:auto"'}>Copy</button></div><pre><code>${highlight(code, lang)}</code></pre></div>`);
+      continue;
+    }
+    if (/^\s*$/.test(ln)) { flush(); i++; continue; }
+    if ((m = ln.match(/^(#{1,4})\s+(.*)$/))) { flush(); html.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); i++; continue; }
+    if (/^\s*([-*_])\1{2,}\s*$/.test(ln)) { flush(); html.push("<hr>"); i++; continue; }
+    if (/^\s*>\s?/.test(ln)) {
+      flush();
+      const buf = [];
+      while (i < lines.length && /^\s*>\s?/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ""));
+      html.push("<blockquote>" + inline(buf.join("\n")).replace(/\n/g, "<br>") + "</blockquote>");
+      continue;
+    }
+    if (/^\s*[-*+]\s+/.test(ln) || /^\s*\d+[.)]\s+/.test(ln)) {
+      flush();
+      const ordered = /^\s*\d+[.)]\s+/.test(ln);
+      const items = [];
+      while (i < lines.length && (ordered ? /^\s*\d+[.)]\s+/ : /^\s*[-*+]\s+/).test(lines[i])) {
+        items.push(lines[i++].replace(ordered ? /^\s*\d+[.)]\s+/ : /^\s*[-*+]\s+/, ""));
+      }
+      html.push(`<${ordered ? "ol" : "ul"}>${items.map((t) => "<li>" + inline(t) + "</li>").join("")}</${ordered ? "ol" : "ul"}>`);
+      continue;
+    }
+    if (/^\s*\|.*\|\s*$/.test(ln) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(lines[i + 1])) {
+      flush();
+      const cells = (l) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+      const head = cells(ln); i += 2;
+      const rows = [];
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) rows.push(cells(lines[i++]));
+      html.push("<table><thead><tr>" + head.map((c) => `<th>${inline(c)}</th>`).join("") + "</tr></thead><tbody>" +
+        rows.map((r) => "<tr>" + r.map((c) => `<td>${inline(c)}</td>`).join("") + "</tr>").join("") + "</tbody></table>");
+      continue;
+    }
+    para.push(ln); i++;
+  }
+  flush();
+  return thinkHtml + html.join("");
+}
+
+/* ================== UI: model panel ================== */
+function variantId(base, f16) { return `${base}-${f16 ? QUANT_F16 : QUANT_F32}-MLC`; }
+function currentModel() { return MODELS.find((m) => m.id === $("modelSelect").value) || MODELS[1]; }
+function recordFor(base) {
+  const list = S.webllm?.prebuiltAppConfig?.model_list || [];
+  return list.find((r) => r.model_id === variantId(base, S.hasF16)) || list.find((r) => r.model_id === variantId(base, !S.hasF16));
+}
+
+function buildModelSelect() {
+  const sel = $("modelSelect");
+  const saved = store.get("model", null);
+  sel.innerHTML = "";
+  const groups = {};
+  MODELS.forEach((m) => (groups[m.kind] ||= []).push(m));
+  for (const [kind, ms] of Object.entries(groups)) {
+    const og = document.createElement("optgroup"); og.label = kind;
+    ms.forEach((m) => {
+      const o = document.createElement("option");
+      o.value = m.id;
+      o.textContent = `${m.label}${S.cachedIds.has(m.id) ? " ✓ cached" : ""}`;
+      og.appendChild(o);
+    });
+    sel.appendChild(og);
+  }
+  sel.value = MODELS.some((m) => m.id === saved) ? saved : MODELS.find((m) => m.def).id;
+}
+
+function renderModelInfo() {
+  const m = currentModel();
+  const rec = recordFor(m.id);
+  const vram = rec?.vram_required_MB ?? m.vram;
+  const low = rec?.low_resource_required;
+  const ctx = rec?.overrides?.context_window_size ?? 4096;
+  $("modelInfo").innerHTML = `
+    <dt>Parameters</dt><dd>${esc(m.params)}</dd>
+    <dt>Quantization</dt><dd>${S.hasF16 || !S.webllm ? "4-bit (q4f16)" : "4-bit (q4f32)"}</dd>
+    <dt>Download</dt><dd>~${m.dl >= 1000 ? (m.dl / 1000).toFixed(1) + " GB" : m.dl + " MB"}${S.cachedIds.has(m.id) ? '<span class="badge good">cached</span>' : ""}</dd>
+    <dt>VRAM needed</dt><dd>~${(vram / 1024).toFixed(2)} GB${low ? '<span class="badge good">low-end ok</span>' : ""}</dd>
+    <dt>Default context</dt><dd>${ctx.toLocaleString()} tok</dd>
+    <dt>Best for</dt><dd>${esc(m.rec)}</dd>`;
+}
+
+function setStatus(kind, text) {
+  $("statusDot").className = "dot " + (kind || "");
+  $("statusText").textContent = text;
+}
+
+function buildParams() {
+  const box = $("paramBox");
+  box.innerHTML = "";
+  PARAMS.forEach((p) => {
+    const d = document.createElement("div"); d.className = "param";
+    d.innerHTML = `<label for="p_${p.key}">${p.label}<b id="v_${p.key}"></b></label><input type="range" id="p_${p.key}" min="${p.min}" max="${p.max}" step="${p.step}">${p.hint ? `<div class="hint">${p.hint}</div>` : ""}`;
+    box.appendChild(d);
+    const r = d.querySelector("input");
+    r.value = S.params[p.key];
+    const upd = () => { S.params[p.key] = +r.value; $("v_" + p.key).textContent = p.step < 1 ? String(+(+r.value).toFixed(2)) : r.value; store.set("params", S.params); renderEngineInfo(); };
+    r.addEventListener("input", upd); upd();
+  });
+}
+
+/* ================== engine loading ================== */
+async function probeGPU() {
+  if (!("gpu" in navigator)) return null;
+  try {
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
+    if (!adapter) return null;
+    S.adapter = adapter;
+    S.hasF16 = adapter.features.has("shader-f16");
+    const info = adapter.info || (adapter.requestAdapterInfo ? await adapter.requestAdapterInfo() : {});
+    S.gpuInfo = {
+      vendor: info.vendor || "unknown", arch: info.architecture || "", device: info.device || "", desc: info.description || "",
+      maxBuffer: adapter.limits.maxBufferSize, maxStorage: adapter.limits.maxStorageBufferBindingSize,
+      maxWg: adapter.limits.maxComputeInvocationsPerWorkgroup, f16: S.hasF16,
+    };
+    return S.gpuInfo;
+  } catch { return null; }
+}
+
+async function loadLibrary() {
+  if (S.webllm) return S.webllm;
+  setStatus("busy", "Loading AI engine…");
+  S.webllm = await import(WEBLLM_URL);
+  return S.webllm;
+}
+
+async function refreshCacheFlags() {
+  if (!S.webllm) return;
+  const checks = await Promise.all(MODELS.map(async (m) => {
+    const rec = recordFor(m.id);
+    try { return rec && (await S.webllm.hasModelInCache(rec.model_id)) ? m.id : null; } catch { return null; }
+  }));
+  S.cachedIds = new Set(checks.filter(Boolean));
+  const v = $("modelSelect").value;
+  buildModelSelect(); $("modelSelect").value = v;
+  renderModelInfo();
+}
+
+function makeEngine(webllm, progressCb) {
+  // Prefer a module Web Worker so inference never blocks the UI thread.
+  try {
+    const src = `import { WebWorkerMLCEngineHandler } from "${WEBLLM_URL}";
+const handler = new WebWorkerMLCEngineHandler();
+self.onmessage = (m) => handler.onmessage(m);`;
+    const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+    const worker = new Worker(url, { type: "module" });
+    S.worker = worker; S.usingWorker = true;
+    return new webllm.WebWorkerMLCEngine(worker, { initProgressCallback: progressCb });
+  } catch (e) {
+    console.warn("Worker engine unavailable, using main thread:", e);
+    S.usingWorker = false;
+    return new webllm.MLCEngine({ initProgressCallback: progressCb });
+  }
+}
+
+function showBanner(html, info) {
+  const t = $("thread");
+  let b = t.querySelector(".banner");
+  if (!b) { b = document.createElement("div"); t.prepend(b); }
+  b.className = "banner" + (info ? " info" : "");
+  b.innerHTML = html;
+}
+
+async function loadModel() {
+  if (S.loading || S.generating) return;
+  S.loading = true;
+  $("btnLoad").disabled = true; $("modelSelect").disabled = true;
+  const bar = $("progBar"), txt = $("progText");
+  bar.style.width = "0%"; txt.textContent = "Starting…";
+  try {
+    const gpu = await probeGPU();
+    if (!gpu) {
+      setStatus("err", "WebGPU not available");
+      showBanner(`<b>WebGPU isn't available in this browser.</b><br>Use a recent <b>Chrome, Edge or Brave (v113+)</b> on desktop or Android. Safari 26+ and Firefox 141+ (Windows) also work. If you're already on one, enable hardware acceleration in browser settings and check <code>chrome://gpu</code>.`);
+      txt.textContent = "WebGPU unavailable.";
+      return;
+    }
+    const webllm = await loadLibrary();
+    const m = currentModel();
+    const rec = recordFor(m.id);
+    if (!rec) throw new Error("This model isn't available in the engine's catalogue.");
+    if (rec.required_features?.includes("shader-f16") && !S.hasF16) throw new Error("This GPU lacks shader-f16 support; pick another model.");
+
+    if (S.engine && S.loadedModelId) { try { await S.engine.unload(); } catch {} S.loadedModelId = null; }
+    const onProgress = (r) => {
+      bar.style.width = Math.round((r.progress || 0) * 100) + "%";
+      txt.textContent = r.text || "";
+      setStatus("busy", `Loading ${m.label} — ${Math.round((r.progress || 0) * 100)}%`);
+    };
+    if (!S.engine) S.engine = makeEngine(webllm, onProgress); else S.engine.setInitProgressCallback(onProgress);
+
+    const chatOpts = {};
+    const ctx = +$("ctxSelect").value;
+    if (ctx) chatOpts.context_window_size = ctx;
+    setStatus("busy", `Loading ${m.label}…`);
+    const t0 = performance.now();
+    await S.engine.reload(rec.model_id, chatOpts);
+    const secs = (performance.now() - t0) / 1000;
+
+    S.loadedModelId = rec.model_id; S.loadedRecord = rec;
+    S.ctxSize = ctx || rec.overrides?.context_window_size || 4096;
+    store.set("model", m.id);
+    bar.style.width = "100%";
+    txt.textContent = `Ready in ${secs.toFixed(1)} s`;
+    setStatus("ready", `${m.label} · ${S.usingWorker ? "worker" : "main thread"} · WebGPU`);
+    $("btnLoad").textContent = "Reload model";
+    showBanner(`<b>${esc(m.label)} is ready.</b> Everything stays on your device — try one of the prompts below or type your own.`, true);
+    updateContextMeter(); updateVram(); renderEngineInfo();
+    refreshCacheFlags();
+    $("input").focus();
+  } catch (e) {
+    console.error(e);
+    setStatus("err", "Failed to load model");
+    $("progText").textContent = String(e?.message || e);
+    showBanner(`<b>Couldn't load the model.</b><br>${esc(String(e?.message || e))}<br><span style="color:var(--muted)">Check your connection (the first load downloads the weights), try a smaller model, or free GPU memory by closing other heavy tabs.</span>`);
+  } finally {
+    S.loading = false;
+    $("btnLoad").disabled = false; $("modelSelect").disabled = false;
+  }
+}
+
+/* ================== chat ================== */
+function msgEl(m, idx) {
+  const d = document.createElement("div");
+  d.className = "msg " + m.role; d.dataset.idx = idx;
+  d.innerHTML = `<div class="avatar">${m.role === "user" ? "You" : "AI"}</div><div class="bubble"><div class="body"></div><div class="extra"></div></div>`;
+  setBody(d, m, false);
+  return d;
+}
+function setBody(el, m, streaming) {
+  const body = el.querySelector(".body");
+  if (m.role === "user") body.textContent = m.content;
+  else {
+    body.innerHTML = renderMarkdown(m.content || "", streaming) || "";
+    body.classList.toggle("cursor", streaming);
+  }
+  const extra = el.querySelector(".extra");
+  if (!streaming && m.role === "assistant" && m.content) {
+    const st = m.stats;
+    extra.innerHTML = (st ? `<div class="stats-line">
+        <span><b>${fmt(st.decode, 1)}</b> tok/s</span><span>TTFT <b>${fmt(st.ttft, 2)}</b>s</span>
+        <span>prefill <b>${fmt(st.prefill, 0)}</b> tok/s</span><span><b>${st.out ?? "–"}</b> tokens</span>
+        <span>total <b>${fmt(st.e2e, 1)}</b>s</span></div>` : "") +
+      `<div class="msg-actions"><button data-act="copymsg">Copy</button><button data-act="regen">Regenerate</button></div>`;
+  } else extra.innerHTML = "";
+}
+function renderThread() {
+  const t = $("thread");
+  const banner = t.querySelector(".banner");
+  t.innerHTML = "";
+  if (banner) t.appendChild(banner);
+  if (!S.messages.length) {
+    const e = document.createElement("div"); e.className = "empty";
+    e.innerHTML = `<h1>Ask anything. Code anything.</h1><p>A private AI that runs entirely on your own device using WebGPU. Nothing is uploaded and no account is needed — pick a model, press <b>Load model</b>, and chat.</p>
+      <div class="suggest">
+        ${[["Explain like I'm 12", "How does the internet actually work?"], ["Write code", "Write a Python function that finds all prime numbers up to n using a sieve, with tests."],
+           ["Build something", "Make a single-file HTML page with a working analog clock using canvas."], ["Debug", "Why does `[1,2,3].map(parseInt)` return [1, NaN, NaN] in JavaScript?"]]
+          .map(([a, b]) => `<button data-prompt="${esc(b)}"><b>${a}</b><small>${esc(b.length > 60 ? b.slice(0, 58) + "…" : b)}</small></button>`).join("")}
+      </div>`;
+    t.appendChild(e);
+  } else S.messages.forEach((m, i) => t.appendChild(msgEl(m, i)));
+  scrollDown(true);
+}
+function scrollDown(force) {
+  const c = $("messages");
+  if (force || c.scrollHeight - c.scrollTop - c.clientHeight < 140) c.scrollTop = c.scrollHeight;
+}
+function persist() { store.set("messages", S.messages.slice(-60)); }
+
+function estimateTokens(s) { return Math.ceil(s.length / 3.6); }
+function buildPrompt() {
+  const sys = $("sysPrompt").value.trim();
+  const head = sys ? [{ role: "system", content: sys }] : [];
+  // keep the newest turns that fit (reserve room for the reply)
+  const budget = Math.max(256, S.ctxSize - Math.min(S.params.max_tokens, S.ctxSize / 2) - estimateTokens(sys) - 32);
+  const keep = [];
+  let used = 0;
+  for (let i = S.messages.length - 1; i >= 0; i--) {
+    const m = S.messages[i];
+    if (m.role === "assistant" && !m.content) continue;
+    const c = m.role === "assistant" ? m.content.replace(/<think>[\s\S]*?<\/think>/g, "").trim() : m.content;
+    const t = estimateTokens(c) + 4;
+    if (used + t > budget && keep.length) break;
+    used += t; keep.unshift({ role: m.role, content: c });
+  }
+  return [...head, ...keep];
+}
+
+function setGenerating(on) {
+  S.generating = on;
+  const b = $("btnSend");
+  b.classList.toggle("stop", on);
+  b.title = on ? "Stop" : "Send";
+  b.innerHTML = on
+    ? '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m0 0l-6 6m6-6l6 6"/></svg>';
+}
+
+async function generate() {
+  if (!S.engine || !S.loadedModelId) { setStatus("err", "Load a model first"); $("btnLoad").focus(); showBanner("<b>Load a model first.</b> Pick one on the left and press <b>Load model</b>.", true); return; }
+  const prompt = buildPrompt();
+  const asst = { role: "assistant", content: "" };
+  S.messages.push(asst);
+  renderThread();
+  const el = $("thread").lastElementChild;
+  setGenerating(true); S.abort = false;
+  S.genState = "prefill"; setInfState("prefill");
+  const tStart = performance.now();
+  let tFirst = 0, chunks = 0, usage = null, lastDraw = 0, winStart = 0, winCount = 0;
+  S.tpsHistory = []; S.liveTps = 0;
+  try {
+    const req = {
+      messages: prompt, stream: true, stream_options: { include_usage: true },
+      temperature: S.params.temperature, top_p: S.params.top_p, max_tokens: S.params.max_tokens,
+      frequency_penalty: S.params.frequency_penalty, presence_penalty: S.params.presence_penalty,
+    };
+    if (S.params.repetition_penalty !== 1) req.repetition_penalty = S.params.repetition_penalty;
+    const seed = $("seed").value.trim(); if (seed !== "" && Number.isFinite(+seed)) req.seed = Math.trunc(+seed);
+    const stream = await S.engine.chat.completions.create(req);
+    for await (const chunk of stream) {
+      const delta = chunk.choices?.[0]?.delta?.content;
+      if (chunk.usage) usage = chunk.usage;
+      if (delta) {
+        const now = performance.now();
+        if (!tFirst) { tFirst = now; winStart = now; S.genState = "decode"; setInfState("decode"); }
+        asst.content += delta; chunks++; winCount++;
+        if (now - winStart >= 300) { S.liveTps = (winCount * 1000) / (now - winStart); S.tpsHistory.push(S.liveTps); S.peakTps = Math.max(S.peakTps, S.liveTps); winStart = now; winCount = 0; }
+        if (now - lastDraw > 50) { lastDraw = now; setBody(el, asst, true); scrollDown(); }
+      }
+      if (S.abort) break;
+    }
+  } catch (e) {
+    console.error(e);
+    const msg = String(e?.message || e);
+    asst.content += (asst.content ? "\n\n" : "") + (/context window/i.test(msg) ? "⚠️ The conversation no longer fits in the context window. Start a new chat or reload with a larger context." : "⚠️ " + msg);
+  }
+  const wall = (performance.now() - tStart) / 1000;
+  const ex = usage?.extra;
+  const out = usage?.completion_tokens ?? chunks;
+  asst.stats = {
+    decode: ex?.decode_tokens_per_s ?? (tFirst && chunks > 1 ? (chunks - 1) / ((performance.now() - tFirst) / 1000) : NaN),
+    prefill: ex?.prefill_tokens_per_s ?? NaN, ttft: ex?.time_to_first_token_s ?? (tFirst ? (tFirst - tStart) / 1000 : NaN),
+    e2e: ex?.e2e_latency_s ?? wall, out, prompt: usage?.prompt_tokens, perTok: ex?.time_per_output_token_s,
+  };
+  if (Number.isFinite(asst.stats.decode)) S.tpsSamples.push(asst.stats.decode);
+  S.totalOut += out || 0; S.runs++;
+  if (usage) S.lastPromptTokens = usage.prompt_tokens + usage.completion_tokens;
+  else S.lastPromptTokens = prompt.reduce((a, m) => a + estimateTokens(m.content), 0) + out;
+  S.genState = "idle"; S.liveTps = 0; setInfState("idle");
+  setBody(el, asst, false);
+  setGenerating(false);
+  persist(); showLastStats(asst.stats); updateContextMeter(); renderEngineInfo(); scrollDown();
+  try { S.engine.runtimeStatsText().then((t) => ($("rawStats").textContent = t)).catch(() => {}); } catch {}
+}
+
+async function send(text) {
+  text = (text ?? $("input").value).trim();
+  if (!text || S.generating || S.loading) return;
+  S.messages.push({ role: "user", content: text });
+  $("input").value = ""; autoGrow();
+  const banner = $("thread").querySelector(".banner"); if (banner) banner.remove();
+  await generate();
+}
+
+async function regenerate() {
+  if (S.generating) return;
+  while (S.messages.length && S.messages[S.messages.length - 1].role === "assistant") S.messages.pop();
+  if (!S.messages.length) return;
+  await generate();
+}
+
+function newChat() {
+  if (S.generating) stopGen();
+  S.messages = []; persist();
+  S.lastPromptTokens = 0;
+  try { S.engine?.resetChat(); } catch {}
+  renderThread(); updateContextMeter();
+}
+
+function updateContextMeter() {
+  const used = S.lastPromptTokens || 0;
+  $("ctxText").textContent = `Context ${used.toLocaleString()} / ${S.ctxSize.toLocaleString()}`;
+  const pct = Math.min(100, (used / S.ctxSize) * 100);
+  $("ctxBar").style.width = pct + "%";
+  $("ctxBar").style.background = pct > 85 ? "var(--bad)" : pct > 60 ? "var(--warn)" : "var(--accent2)";
+}
+
+/* ---------- message actions: copy / run code ---------- */
+$("thread").addEventListener("click", (e) => {
+  const sug = e.target.closest("[data-prompt]");
+  if (sug) { send(sug.dataset.prompt); return; }
+  const btn = e.target.closest("[data-act]");
+  if (!btn) return;
+  const act = btn.dataset.act;
+  const flash = (t) => { const o = btn.textContent; btn.textContent = t; setTimeout(() => (btn.textContent = o), 1200); };
+  if (act === "copy") { navigator.clipboard?.writeText(btn.closest(".codeblock").querySelector("code").textContent).then(() => flash("Copied ✓")).catch(() => flash("Failed")); }
+  else if (act === "copymsg") { const i = +btn.closest(".msg").dataset.idx; navigator.clipboard?.writeText(S.messages[i].content).then(() => flash("Copied ✓")).catch(() => flash("Failed")); }
+  else if (act === "regen") regenerate();
+  else if (act === "run") runCode(btn);
+});
+
+function runCode(btn) {
+  const block = btn.closest(".codeblock");
+  const code = block.querySelector("code").textContent;
+  const lang = btn.dataset.lang;
+  block.querySelectorAll("iframe, .out").forEach((n) => n.remove());
+  const frame = document.createElement("iframe");
+  frame.setAttribute("sandbox", "allow-scripts");          // opaque origin: no access to this page, cookies or storage
+  const out = document.createElement("div"); out.className = "out";
+  const bridge = `<script>(function(){var p=function(t,a){parent.postMessage({__lm:1,t:t,m:a.map(function(x){try{return typeof x==="string"?x:JSON.stringify(x)}catch(e){return String(x)}}).join(" ")},"*")};
+    ["log","info","warn","error"].forEach(function(k){console[k]=function(){p(k,[].slice.call(arguments))}});
+    window.addEventListener("error",function(e){p("error",[e.message])});window.addEventListener("unhandledrejection",function(e){p("error",["Unhandled: "+(e.reason&&e.reason.message||e.reason)])});})();<\/script>`;
+  if (lang === "html") {
+    frame.srcdoc = bridge + code;
+    block.appendChild(frame);
+  } else {
+    frame.style.display = "none";
+    frame.srcdoc = `<!doctype html><html><body>${bridge}<script>try{\n${code.replace(/<\/script/gi, "<\\/script")}\n}catch(e){console.error(e&&e.message||String(e))}<\/script></body></html>`;
+    block.appendChild(frame); block.appendChild(out);
+    out.textContent = "";
+  }
+  const onMsg = (ev) => {
+    if (ev.source !== frame.contentWindow || !ev.data?.__lm) return;
+    if (!out.isConnected) { if (lang !== "html") return; block.appendChild(out); }
+    out.style.color = ev.data.t === "error" ? "var(--bad)" : ev.data.t === "warn" ? "var(--warn)" : "var(--good)";
+    out.textContent += (out.textContent ? "\n" : "") + ev.data.m;
+  };
+  window.addEventListener("message", onMsg);
+  setTimeout(() => { if (lang !== "html" && !out.textContent) out.textContent = "(no console output)"; }, 700);
+}
+
+/* ================== dashboard: telemetry ================== */
+function setInfState(s) { const e = $("infState"); e.textContent = s === "prefill" ? "reading prompt…" : s === "decode" ? "generating" : "idle"; e.className = "state " + s; }
+function showLastStats(st) {
+  $("sTtft").innerHTML = Number.isFinite(st.ttft) ? `${fmt(st.ttft, 2)}<small> s</small>` : "–";
+  $("sPrefill").innerHTML = Number.isFinite(st.prefill) ? `${fmt(st.prefill, 0)}<small> t/s</small>` : "–";
+  $("sDecode").innerHTML = Number.isFinite(st.decode) ? `${fmt(st.decode, 1)}<small> t/s</small>` : "–";
+  $("sE2e").innerHTML = `${fmt(st.e2e, 1)}<small> s</small>`;
+  $("sPromptTok").textContent = st.prompt ?? "–";
+  $("sOutTok").textContent = st.out ?? "–";
+  $("sPerTok").innerHTML = Number.isFinite(st.perTok) ? `${fmt(st.perTok * 1000, 0)}<small> ms</small>` : "–";
+  const avg = S.tpsSamples.length ? S.tpsSamples.reduce((a, b) => a + b, 0) / S.tpsSamples.length : NaN;
+  $("sAvg").innerHTML = `${fmt(avg, 1)} / ${fmt(S.peakTps, 1)}`;
+}
+
+function spark(cv, data, { max, color = "#7c5cff", fill = true, min = 0 } = {}) {
+  const dpr = devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || !h) return;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const c = cv.getContext("2d");
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, w, h);
+  c.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--line").trim();
+  c.lineWidth = 1; c.beginPath(); c.moveTo(0, h - 0.5); c.lineTo(w, h - 0.5); c.stroke();
+  if (data.length < 2) return;
+  const hi = max ?? Math.max(1, ...data) * 1.15;
+  const pts = data.map((v, i) => [(i / (data.length - 1)) * w, h - 2 - ((Math.min(v, hi) - min) / (hi - min || 1)) * (h - 6)]);
+  c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y)));
+  c.strokeStyle = color; c.lineWidth = 1.8; c.lineJoin = "round"; c.stroke();
+  if (fill) { c.lineTo(w, h); c.lineTo(0, h); c.closePath(); const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, color + "55"); g.addColorStop(1, color + "00"); c.fillStyle = g; c.fill(); }
+}
+
+const T = { cpu: [], fps: [], heap: [], gpu: [], frames: 0, lastFrameT: performance.now(), longMs: 0, lagLast: performance.now() };
+const N = 60;
+const push = (a, v) => { a.push(v); if (a.length > N) a.shift(); };
+
+try {
+  new PerformanceObserver((list) => { for (const e of list.getEntries()) T.longMs += e.duration; }).observe({ entryTypes: ["longtask"] });
+} catch { T.noLongTask = true; }
+(function raf() { T.frames++; requestAnimationFrame(raf); })();
+
+async function sampleResources() {
+  const now = performance.now();
+  const dt = now - T.lastFrameT; T.lastFrameT = now;
+  // UI-thread load: long-task time (Chromium) or timer drift as a fallback
+  let cpu;
+  if (!T.noLongTask) cpu = Math.min(100, (T.longMs / dt) * 100);
+  else cpu = Math.min(100, Math.max(0, (dt - 1000) / 10));
+  T.longMs = 0;
+  const fps = (T.frames * 1000) / dt; T.frames = 0;
+  push(T.cpu, cpu); push(T.fps, fps);
+  $("mCpu").innerHTML = `${cpu.toFixed(0)}<small>%</small>`;
+  $("mFps").innerHTML = `${fps.toFixed(0)}<small> fps</small>`;
+  spark($("cvCpu"), T.cpu, { max: 100, color: "#fbbf24" });
+  spark($("cvFps"), T.fps, { max: 75, color: "#34d399" });
+
+  const pm = performance.memory;
+  if (pm) {
+    push(T.heap, pm.usedJSHeapSize / 2 ** 20);
+    $("mHeap").innerHTML = `${(pm.usedJSHeapSize / 2 ** 20).toFixed(0)}<small> MB</small>`;
+    spark($("cvHeap"), T.heap, { color: "#22d3ee" });
+  } else $("mHeap").innerHTML = '<small>not exposed by this browser</small>';
+
+  // GPU activity proxy: current decode speed vs best seen (prefill shows as full activity)
+  const g = S.genState === "prefill" ? 100 : S.peakTps ? Math.min(100, (S.liveTps / S.peakTps) * 100) : S.genState === "decode" ? 60 : 0;
+  push(T.gpu, g);
+  $("mGpu").innerHTML = `${g.toFixed(0)}<small>%</small>`;
+  spark($("cvGpu"), T.gpu, { max: 100, color: "#7c5cff" });
+
+  // live tok/s chart (last response)
+  $("liveTps").textContent = S.liveTps.toFixed(1);
+  spark($("cvTps"), S.tpsHistory.slice(-80), { color: "#22d3ee" });
+}
+
+async function sampleStorage() {
+  try {
+    const e = await navigator.storage.estimate();
+    $("mSto").innerHTML = `${fmtBytes(e.usage)}<small> / ${fmtBytes(e.quota)}</small>`;
+    const pct = (e.usage / e.quota) * 100;
+    $("mStoBar").style.width = Math.max(1, pct) + "%";
+    $("mStoPct").textContent = pct.toFixed(1) + "%";
+  } catch { $("mSto").textContent = "n/a"; }
+}
+
+function updateVram() {
+  if (!S.loadedRecord) return;
+  const need = S.loadedRecord.vram_required_MB;
+  $("mVram").innerHTML = `${(need / 1024).toFixed(2)}<small> GB</small>`;
+  const dm = navigator.deviceMemory;
+  const ref = dm ? dm * 1024 : 8192;
+  const pct = Math.min(100, (need / ref) * 100);
+  $("mVramBar").style.width = pct + "%";
+  $("mVramBar").style.background = pct > 80 ? "var(--bad)" : pct > 50 ? "var(--warn)" : "var(--good)";
+  $("mVramPct").textContent = `${pct.toFixed(0)}% of ${dm ? "≥" + dm : "8"} GB ref.`;
+  $("mVramSub").textContent = `${S.loadedRecord.model_id}`;
+}
+
+async function renderSysInfo() {
+  const c = navigator.connection;
+  let bat = "n/a";
+  try { if (navigator.getBattery) { const b = await navigator.getBattery(); bat = `${Math.round(b.level * 100)}%${b.charging ? " ⚡" : ""}`; } } catch {}
+  const rows = [
+    ["CPU threads", navigator.hardwareConcurrency || "n/a"],
+    ["Device memory", navigator.deviceMemory ? "≥ " + navigator.deviceMemory + " GB" : "n/a"],
+    ["GPU", S.gpuInfo ? esc([S.gpuInfo.vendor, S.gpuInfo.arch].filter(Boolean).join(" ") || "WebGPU adapter") : navigator.gpu ? "detecting…" : "no WebGPU"],
+    ["Shader f16", S.gpuInfo ? (S.hasF16 ? "yes" : "no") : "–"],
+    ["Network", c ? `${c.effectiveType || ""} · ${c.downlink ?? "?"} Mbps · ${c.rtt ?? "?"} ms` : "n/a"],
+    ["Battery", bat],
+    ["Platform", esc(navigator.userAgentData?.platform || navigator.platform || "n/a")],
+  ];
+  $("sysInfo").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+  $("gpuTag").textContent = S.gpuInfo ? (S.hasF16 ? "GPU ✓ f16" : "GPU ✓") : "";
+}
+
+function renderEngineInfo() {
+  const r = S.loadedRecord, m = currentModel();
+  const rows = [
+    ["Model", r ? esc(r.model_id) : "not loaded"],
+    ["Parameters", r ? m.params : "–"],
+    ["Runtime", S.webllm ? `WebLLM ${WEBLLM_VERSION} · WebGPU` : "–"],
+    ["Executes in", S.engine ? (S.usingWorker ? "Web Worker (off UI thread)" : "main thread") : "–"],
+    ["Context size", S.loadedRecord ? S.ctxSize.toLocaleString() + " tok" : "–"],
+    ["Temperature", S.params.temperature], ["Top-p", S.params.top_p], ["Max new tokens", S.params.max_tokens],
+    ["Freq / pres. penalty", `${S.params.frequency_penalty} / ${S.params.presence_penalty}`],
+    ["Repetition penalty", S.params.repetition_penalty],
+    ["Max buffer", S.gpuInfo ? fmtBytes(S.gpuInfo.maxBuffer) : "–"],
+    ["Max storage binding", S.gpuInfo ? fmtBytes(S.gpuInfo.maxStorage) : "–"],
+    ["Tokens generated", S.totalOut.toLocaleString() + ` in ${S.runs} replies`],
+  ];
+  $("engineInfo").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+}
+
+/* ================== wiring ================== */
+function autoGrow() { const t = $("input"); t.style.height = "auto"; t.style.height = Math.min(200, t.scrollHeight) + "px"; }
+$("input").addEventListener("input", autoGrow);
+$("input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
+const stopGen = () => { S.abort = true; try { S.engine?.interruptGenerate(); } catch {} };
+$("btnSend").addEventListener("click", () => (S.generating ? stopGen() : send()));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.generating) stopGen(); });
+$("btnLoad").addEventListener("click", loadModel);
+$("btnClear").addEventListener("click", newChat);
+$("modelSelect").addEventListener("change", () => { renderModelInfo(); renderEngineInfo(); });
+$("btnTheme").addEventListener("click", () => {
+  const r = document.documentElement; r.dataset.theme = r.dataset.theme === "dark" ? "light" : "dark"; store.set("theme", r.dataset.theme);
+});
+$("btnExport").addEventListener("click", () => {
+  const md = S.messages.map((m) => `### ${m.role === "user" ? "You" : "Assistant"}\n\n${m.content}\n`).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([md], { type: "text/markdown" })); a.download = "localmind-chat.md"; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+});
+$("lnkResetParams").addEventListener("click", (e) => { e.preventDefault(); S.params = Object.fromEntries(PARAMS.map((p) => [p.key, p.def])); store.set("params", S.params); buildParams(); });
+$("lnkDelCache").addEventListener("click", async (e) => {
+  e.preventDefault();
+  const m = currentModel();
+  if (!S.webllm) { $("progText").textContent = "Load the engine first (press Load model)."; return; }
+  const rec = recordFor(m.id);
+  if (!rec || !confirm(`Remove cached files for ${m.label}? It will be downloaded again next time.`)) return;
+  try { if (S.loadedModelId === rec.model_id) { await S.engine.unload(); S.loadedModelId = null; setStatus("", "No model loaded"); }
+    await S.webllm.deleteModelAllInfoInCache(rec.model_id); $("progText").textContent = "Cached copy removed."; refreshCacheFlags(); sampleStorage(); } catch (err) { $("progText").textContent = String(err?.message || err); }
+});
+const presetSel = $("presetSelect");
+Object.entries(PRESETS).forEach(([k, [n]]) => presetSel.add(new Option(n, k)));
+presetSel.addEventListener("change", () => { $("sysPrompt").value = PRESETS[presetSel.value][1]; store.set("sys", $("sysPrompt").value); });
+$("sysPrompt").addEventListener("input", () => store.set("sys", $("sysPrompt").value));
+
+// responsive drawers
+const scrim = $("scrim");
+const closeDrawers = () => { $("left").classList.remove("open"); $("right").classList.remove("open"); scrim.classList.remove("on"); };
+$("btnLeft").addEventListener("click", () => { const o = !$("left").classList.contains("open"); closeDrawers(); if (o) { $("left").classList.add("open"); scrim.classList.add("on"); } });
+$("btnRight").addEventListener("click", () => { const o = !$("right").classList.contains("open"); closeDrawers(); if (o) { $("right").classList.add("open"); scrim.classList.add("on"); } });
+scrim.addEventListener("click", closeDrawers);
+const mq = matchMedia("(max-width: 800px)");
+const syncLeftBtn = () => ($("btnLeft").style.display = mq.matches ? "inline-flex" : "none");
+mq.addEventListener("change", syncLeftBtn); syncLeftBtn();
+
+/* ================== boot ================== */
+(function init() {
+  const th = store.get("theme", matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+  document.documentElement.dataset.theme = th;
+  $("sysPrompt").value = store.get("sys", PRESETS.assistant[1]);
+  buildModelSelect(); renderModelInfo(); buildParams(); renderThread(); renderEngineInfo(); updateContextMeter();
+  if (!("gpu" in navigator)) {
+    showBanner(`<b>WebGPU isn't available in this browser.</b><br>Open this page in a recent <b>Chrome, Edge or Brave</b> (desktop or Android) — no install needed. Safari 26+ and Firefox 141+ also support WebGPU.`);
+    setStatus("err", "WebGPU unavailable");
+  }
+  setInterval(sampleResources, 1000);
+  setInterval(sampleStorage, 5000); sampleStorage();
+  setInterval(renderSysInfo, 5000);
+  renderSysInfo();
+  // detect the GPU, then warm the engine library in the background so "Load model" starts instantly
+  probeGPU().then(() => { renderSysInfo(); renderEngineInfo(); renderModelInfo(); return loadLibrary(); }).then(() => { if (!S.loadedModelId && S.gpuInfo) setStatus("", "No model loaded"); refreshCacheFlags(); renderModelInfo(); }).catch((e) => {
+    console.warn(e);
+    setStatus("err", "Couldn't reach the engine CDN");
+    showBanner(`<b>Couldn't download the AI engine library</b> from jsDelivr. Check your internet connection or any content blocker, then reload the page.`);
+  });
+})();
+</script>
+</body>
+</html>
