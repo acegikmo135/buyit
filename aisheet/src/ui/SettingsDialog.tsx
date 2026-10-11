@@ -1,17 +1,49 @@
 import { useEffect, useState } from 'react';
-import { Check, Eye, EyeOff, Loader2, RefreshCw, X, Zap } from 'lucide-react';
+import { Check, Eye, EyeOff, Loader2, RefreshCw, Zap } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import { useStore, providerModel } from '../store';
 import { PROVIDERS, chat, listModels, providerById, type ProviderId } from '../ai/providers';
-import { setSecret } from '../platform';
+import { setSecret, isTauri } from '../platform';
 import { loadKey } from '../ai/agent';
 import { useT } from '../i18n';
-import { isTauri } from '../platform';
+import { cloudSupported } from '../voice/cloud';
+import { ModelManager } from './ModelManager';
 import type { Category } from '../ai/executor';
+
+function Row({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-2.5">
+      <div className="min-w-0">
+        <div className="text-sm font-medium">{title}</div>
+        {hint && <div className="text-muted-foreground text-xs">{hint}</div>}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
+  );
+}
+
+function Seg<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: [T, string][] }) {
+  return (
+    <div className="bg-muted inline-flex rounded-lg p-[3px]">
+      {options.map(([k, l]) => (
+        <button key={k} type="button" onClick={() => onChange(k)} className={cn('rounded-md px-3 py-1 text-sm transition', value === k ? 'bg-background text-foreground font-medium shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+          {l}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function SettingsDialog() {
   const t = useT();
   const s = useStore();
-  const [tab, setTab] = useState<'ai' | 'perm' | 'voice' | 'general'>('ai');
   const def = providerById(s.providerId);
   const [key, setKey] = useState('');
   const [show, setShow] = useState(false);
@@ -23,7 +55,6 @@ export function SettingsDialog() {
     let alive = true;
     setModels(def.models);
     setStatus({ kind: 'idle' });
-    setSaved(false);
     loadKey(s.providerId).then((k) => alive && setKey(k));
     return () => {
       alive = false;
@@ -31,199 +62,139 @@ export function SettingsDialog() {
   }, [s.providerId, def.models]);
 
   const cfg = () => ({ id: s.providerId, model: providerModel(s.providerId), baseUrl: s.baseUrls[s.providerId], apiKey: key });
-
   const saveKey = async () => {
     await setSecret('key:' + s.providerId, key);
     s.set({ keys: { ...s.keys, [s.providerId]: key } });
     setSaved(true);
     setTimeout(() => setSaved(false), 1600);
   };
-
-  const fetchModels = async () => {
+  const run = async (fn: () => Promise<string>) => {
     setStatus({ kind: 'busy' });
     try {
       await saveKey();
+      setStatus({ kind: 'ok', text: await fn() });
+    } catch (e) {
+      setStatus({ kind: 'err', text: (e as Error).message });
+    }
+  };
+  const fetchModels = () =>
+    run(async () => {
       const list = await listModels({ id: s.providerId, baseUrl: s.baseUrls[s.providerId], apiKey: key });
       setModels(list);
-      setStatus({ kind: 'ok', text: t('set.modelsLoaded', { n: list.length }) });
-    } catch (e) {
-      setStatus({ kind: 'err', text: (e as Error).message });
-    }
-  };
-
-  const test = async () => {
-    setStatus({ kind: 'busy' });
-    try {
-      await saveKey();
-      const r = await chat(cfg(), 'Reply with JSON {"message":"ok","actions":[]}', [{ role: 'user', content: 'ping' }]);
-      setStatus({ kind: 'ok', text: t('set.testOk') + ' ' + r.slice(0, 60) });
-    } catch (e) {
-      setStatus({ kind: 'err', text: (e as Error).message });
-    }
-  };
+      return t('set.modelsLoaded', { n: list.length });
+    });
+  const test = () => run(async () => t('set.testOk') + ' ' + (await chat(cfg(), 'Reply with JSON {"message":"ok","actions":[]}', [{ role: 'user', content: 'ping' }])).slice(0, 60));
 
   const perms = s.permissions;
   const setPerm = (p: Partial<typeof perms>) => s.set({ permissions: { ...perms, ...p } });
   const cats: Category[] = ['write', 'format', 'structure', 'sheets', 'delete'];
+  const setVoice = (p: Partial<typeof s.voice>) => s.set({ voice: { ...s.voice, ...p } });
 
   return (
-    <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && s.set({ settingsOpen: false })}>
-      <div className="modal" role="dialog" aria-label={t('settings.title')}>
-        <header className="modal-head">
-          <h2>{t('settings.title')}</h2>
-          <button className="icon-btn" onClick={() => s.set({ settingsOpen: false })} aria-label="close"><X size={16} /></button>
-        </header>
-        <nav className="tabs-nav">
-          {(['ai', 'perm', 'voice', 'general'] as const).map((k) => (
-            <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{t('settings.tab.' + k)}</button>
-          ))}
-        </nav>
-
-        {tab === 'ai' && (
-          <div className="modal-body">
-            <div className="field">
-              <label>{t('set.provider')}</label>
-              <div className="provider-grid">
-                {PROVIDERS.map((p) => (
-                  <button key={p.id} className={'prov' + (p.id === s.providerId ? ' on' : '')} onClick={() => s.set({ providerId: p.id as ProviderId })}>
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {def.editableUrl && (
-              <div className="field">
-                <label>{t('set.baseUrl')}</label>
-                <input value={s.baseUrls[s.providerId] ?? def.baseUrl} onChange={(e) => s.set({ baseUrls: { ...s.baseUrls, [s.providerId]: e.target.value } })} spellCheck={false} />
-              </div>
-            )}
-            <div className="field">
-              <label>{t('set.apiKey')} {def.keyOptional && <em>({t('set.optional')})</em>}</label>
-              <div className="row">
-                <input type={show ? 'text' : 'password'} value={key} placeholder={def.keyHint} onChange={(e) => setKey(e.target.value)} spellCheck={false} autoComplete="off" />
-                <button className="icon-btn" onClick={() => setShow(!show)} aria-label="toggle">{show ? <EyeOff size={15} /> : <Eye size={15} />}</button>
-                <button className="btn" onClick={saveKey}>{saved ? <><Check size={14} /> {t('set.saved')}</> : t('set.save')}</button>
-              </div>
-              <p className="hint">{isTauri() ? t('set.keyHintNative') : t('set.keyHintWeb')}</p>
-            </div>
-            <div className="field">
-              <label>{t('set.model')}</label>
-              <div className="row">
-                <input list="model-list" value={providerModel(s.providerId)} onChange={(e) => s.set({ models: { ...s.models, [s.providerId]: e.target.value } })} spellCheck={false} />
-                <datalist id="model-list">{models.map((m) => <option key={m} value={m} />)}</datalist>
-                <button className="btn" onClick={fetchModels} title={t('set.fetchModels')}><RefreshCw size={14} /> {t('set.fetch')}</button>
-              </div>
-            </div>
-            <div className="row end">
-              {status.kind !== 'idle' && (
-                <span className={'status ' + status.kind}>
-                  {status.kind === 'busy' && <Loader2 size={14} className="spin" />}
-                  {status.text}
-                </span>
-              )}
-              <button className="btn primary" onClick={test} disabled={status.kind === 'busy'}><Zap size={14} /> {t('set.test')}</button>
-            </div>
-          </div>
-        )}
-
-        {tab === 'perm' && (
-          <div className="modal-body">
-            <div className="field">
-              <label>{t('perm.title')}</label>
-              <div className="seg">
-                {(['ask', 'auto', 'readonly'] as const).map((m) => (
-                  <button key={m} className={perms.mode === m ? 'on' : ''} onClick={() => setPerm({ mode: m })}>{t('perm.' + m)}</button>
-                ))}
-              </div>
-              <p className="hint">{t('perm.desc.' + perms.mode)}</p>
-            </div>
-            <div className="field">
-              <label>{t('perm.allowed')}</label>
-              {cats.map((c) => (
-                <label key={c} className="check">
-                  <input type="checkbox" checked={perms.allow[c]} onChange={(e) => setPerm({ allow: { ...perms.allow, [c]: e.target.checked } })} />
-                  <span><b>{t('cat.' + c)}</b> <em>{t('cat.' + c + '.d')}</em></span>
-                </label>
+    <Dialog open onOpenChange={(o) => !o && s.set({ settingsOpen: false })}>
+      <DialogContent className="flex h-[min(720px,90vh)] flex-col gap-3 p-0 sm:max-w-3xl" aria-describedby={undefined}>
+        <div className="px-6 pt-5">
+          <DialogTitle>{t('settings.title')}</DialogTitle>
+          <DialogDescription className="sr-only">{t('settings.title')}</DialogDescription>
+        </div>
+        <Tabs value={s.settingsTab} onValueChange={(v) => s.set({ settingsTab: v as typeof s.settingsTab })} className="min-h-0 flex-1 gap-0">
+          <div className="px-6">
+            <TabsList>
+              {(['ai', 'perm', 'voice', 'general'] as const).map((k) => (
+                <TabsTrigger key={k} value={k}>{t('settings.tab.' + k)}</TabsTrigger>
               ))}
-            </div>
-            <label className="check">
-              <input type="checkbox" checked={perms.selectionOnly} onChange={(e) => setPerm({ selectionOnly: e.target.checked })} />
-              <span><b>{t('perm.selOnly')}</b> <em>{t('perm.selOnly.d')}</em></span>
-            </label>
-            <label className="check">
-              <input type="checkbox" checked={perms.confirmDestructive} onChange={(e) => setPerm({ confirmDestructive: e.target.checked })} />
-              <span><b>{t('perm.confirmDestructive')}</b> <em>{t('perm.confirmDestructive.d')}</em></span>
-            </label>
+            </TabsList>
           </div>
-        )}
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+            <TabsContent value="ai" className="flex flex-col gap-5">
+              <div className="flex flex-col gap-2">
+                <Label>{t('set.provider')}</Label>
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                  {PROVIDERS.map((p) => (
+                    <Button key={p.id} variant={p.id === s.providerId ? 'default' : 'outline'} size="sm" className="justify-start" onClick={() => s.set({ providerId: p.id as ProviderId })}>
+                      {p.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              {def.editableUrl && (
+                <div className="flex flex-col gap-2">
+                  <Label>{t('set.baseUrl')}</Label>
+                  <Input value={s.baseUrls[s.providerId] ?? def.baseUrl} onChange={(e) => s.set({ baseUrls: { ...s.baseUrls, [s.providerId]: e.target.value } })} spellCheck={false} />
+                </div>
+              )}
+              <div className="flex flex-col gap-2">
+                <Label>{t('set.apiKey')} {def.keyOptional && <span className="text-muted-foreground font-normal">({t('set.optional')})</span>}</Label>
+                <div className="flex gap-2">
+                  <Input type={show ? 'text' : 'password'} value={key} placeholder={def.keyHint} onChange={(e) => setKey(e.target.value)} spellCheck={false} autoComplete="off" />
+                  <Button variant="outline" size="icon" onClick={() => setShow(!show)} aria-label="toggle">{show ? <EyeOff /> : <Eye />}</Button>
+                  <Button variant="outline" onClick={saveKey}>{saved ? <><Check />{t('set.saved')}</> : t('set.save')}</Button>
+                </div>
+                <p className="text-muted-foreground text-xs">{isTauri() ? t('set.keyHintNative') : t('set.keyHintWeb')}</p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>{t('set.model')}</Label>
+                <div className="flex gap-2">
+                  <Input list="model-list" value={providerModel(s.providerId)} onChange={(e) => s.set({ models: { ...s.models, [s.providerId]: e.target.value } })} spellCheck={false} />
+                  <datalist id="model-list">{models.map((m) => <option key={m} value={m} />)}</datalist>
+                  <Button variant="outline" onClick={fetchModels}><RefreshCw />{t('set.fetch')}</Button>
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-3">
+                {status.kind !== 'idle' && (
+                  <span className={cn('mr-auto flex items-center gap-1.5 text-xs', status.kind === 'ok' && 'text-emerald-600', status.kind === 'err' && 'text-destructive')}>
+                    {status.kind === 'busy' && <Loader2 className="size-3.5 animate-spin" />}
+                    {status.text}
+                  </span>
+                )}
+                <Button onClick={test} disabled={status.kind === 'busy'}><Zap />{t('set.test')}</Button>
+              </div>
+            </TabsContent>
 
-        {tab === 'voice' && (
-          <div className="modal-body">
-            <div className="field">
-              <label>{t('voice.lang')}</label>
-              <div className="seg">
-                {(['auto', 'en', 'gu'] as const).map((l) => (
-                  <button key={l} className={s.voice.lang === l ? 'on' : ''} onClick={() => s.set({ voice: { ...s.voice, lang: l } })}>
-                    {l === 'auto' ? t('voice.auto') : l === 'en' ? 'English' : 'ગુજરાતી'}
-                  </button>
-                ))}
-              </div>
-              <p className="hint">{t('voice.lang.d')}</p>
-            </div>
-            <div className="field">
-              <label>{t('voice.engine')}</label>
-              <div className="seg">
-                {(['auto', 'system', 'whisper'] as const).map((l) => (
-                  <button key={l} className={s.voice.engine === l ? 'on' : ''} onClick={() => s.set({ voice: { ...s.voice, engine: l } })}>
-                    {t('voice.engine.' + l)}
-                  </button>
-                ))}
-              </div>
-              <p className="hint">{t('voice.engine.d')}</p>
-            </div>
-            <div className="field">
-              <label>{t('voice.model')}</label>
-              <div className="seg">
-                <button className={s.voice.model === 'Xenova/whisper-base' ? 'on' : ''} onClick={() => s.set({ voice: { ...s.voice, model: 'Xenova/whisper-base' } })}>{t('voice.model.base')}</button>
-                <button className={s.voice.model === 'Xenova/whisper-small' ? 'on' : ''} onClick={() => s.set({ voice: { ...s.voice, model: 'Xenova/whisper-small' } })}>{t('voice.model.small')}</button>
-              </div>
-              <p className="hint">{t('voice.model.d')}</p>
-            </div>
-            <label className="check">
-              <input type="checkbox" checked={s.voice.polish} onChange={(e) => s.set({ voice: { ...s.voice, polish: e.target.checked } })} />
-              <span><b>{t('voice.polish')}</b> <em>{t('voice.polish.d')}</em></span>
-            </label>
-          </div>
-        )}
+            <TabsContent value="perm" className="flex flex-col">
+              <Row title={t('perm.title')} hint={t('perm.desc.' + perms.mode)}>
+                <Seg value={perms.mode} onChange={(m) => setPerm({ mode: m })} options={[['ask', t('perm.ask')], ['auto', t('perm.auto')], ['readonly', t('perm.readonly')]]} />
+              </Row>
+              <div className="text-muted-foreground mt-3 text-xs font-medium tracking-wide uppercase">{t('perm.allowed')}</div>
+              {cats.map((c) => (
+                <Row key={c} title={t('cat.' + c)} hint={t('cat.' + c + '.d')}>
+                  <Switch checked={perms.allow[c]} onCheckedChange={(v) => setPerm({ allow: { ...perms.allow, [c]: v } })} />
+                </Row>
+              ))}
+              <Row title={t('perm.selOnly')} hint={t('perm.selOnly.d')}><Switch checked={perms.selectionOnly} onCheckedChange={(v) => setPerm({ selectionOnly: v })} /></Row>
+              <Row title={t('perm.confirmDestructive')} hint={t('perm.confirmDestructive.d')}><Switch checked={perms.confirmDestructive} onCheckedChange={(v) => setPerm({ confirmDestructive: v })} /></Row>
+            </TabsContent>
 
-        {tab === 'general' && (
-          <div className="modal-body">
-            <div className="field">
-              <label>{t('gen.lang')}</label>
-              <div className="seg">
-                <button className={s.lang === 'en' ? 'on' : ''} onClick={() => s.set({ lang: 'en' })}>English</button>
-                <button className={s.lang === 'gu' ? 'on' : ''} onClick={() => s.set({ lang: 'gu' })}>ગુજરાતી</button>
+            <TabsContent value="voice" className="flex flex-col gap-4">
+              <div className="flex flex-col">
+                <Row title={t('voice.lang')} hint={t('voice.lang.d')}>
+                  <Seg value={s.voice.lang} onChange={(l) => setVoice({ lang: l })} options={[['auto', t('voice.auto')], ['en', 'English'], ['gu', 'ગુજરાતી']]} />
+                </Row>
+                <Row title={t('voice.engine')} hint={t('voice.engine.d')}>
+                  <Select value={s.voice.engine} onValueChange={(v) => setVoice({ engine: v as typeof s.voice.engine })}>
+                    <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">{t('voice.engine.auto')}</SelectItem>
+                      <SelectItem value="native">{t('voice.engine.native')}</SelectItem>
+                      <SelectItem value="cloud" disabled={!cloudSupported(s.providerId)}>{t('voice.engine.cloud')}</SelectItem>
+                      {!isTauri() && <SelectItem value="browser">{t('voice.engine.browser')}</SelectItem>}
+                    </SelectContent>
+                  </Select>
+                </Row>
+                <Row title={t('voice.polish')} hint={t('voice.polish.d')}><Switch checked={s.voice.polish} onCheckedChange={(v) => setVoice({ polish: v })} /></Row>
               </div>
-            </div>
-            <div className="field">
-              <label>{t('gen.aiLang')}</label>
-              <div className="seg">
-                <button className={s.aiLang === 'auto' ? 'on' : ''} onClick={() => s.set({ aiLang: 'auto' })}>{t('gen.auto')}</button>
-                <button className={s.aiLang === 'en' ? 'on' : ''} onClick={() => s.set({ aiLang: 'en' })}>English</button>
-                <button className={s.aiLang === 'gu' ? 'on' : ''} onClick={() => s.set({ aiLang: 'gu' })}>ગુજરાતી</button>
-              </div>
-            </div>
-            <div className="field">
-              <label>{t('gen.theme')}</label>
-              <div className="seg">
-                {(['system', 'light', 'dark'] as const).map((th) => (
-                  <button key={th} className={s.theme === th ? 'on' : ''} onClick={() => s.set({ theme: th })}>{t('gen.theme.' + th)}</button>
-                ))}
-              </div>
-            </div>
+              <div className="text-muted-foreground text-xs font-medium tracking-wide uppercase">{t('voice.models')}</div>
+              <ModelManager />
+            </TabsContent>
+
+            <TabsContent value="general" className="flex flex-col">
+              <Row title={t('gen.lang')}><Seg value={s.lang} onChange={(l) => s.set({ lang: l })} options={[['en', 'English'], ['gu', 'ગુજરાતી']]} /></Row>
+              <Row title={t('gen.aiLang')}><Seg value={s.aiLang} onChange={(l) => s.set({ aiLang: l })} options={[['auto', t('gen.auto')], ['en', 'English'], ['gu', 'ગુજરાતી']]} /></Row>
+              <Row title={t('gen.theme')}><Seg value={s.theme} onChange={(l) => s.set({ theme: l })} options={[['system', t('gen.theme.system')], ['light', t('gen.theme.light')], ['dark', t('gen.theme.dark')]]} /></Row>
+            </TabsContent>
           </div>
-        )}
-      </div>
-    </div>
+        </Tabs>
+      </DialogContent>
+    </Dialog>
   );
 }

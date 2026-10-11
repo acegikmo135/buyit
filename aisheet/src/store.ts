@@ -56,9 +56,9 @@ export interface Clip {
 }
 
 export interface VoiceSettings {
-  engine: 'auto' | 'system' | 'whisper';
+  engine: 'auto' | 'native' | 'cloud' | 'browser';
   lang: 'auto' | 'en' | 'gu';
-  model: 'Xenova/whisper-base' | 'Xenova/whisper-small';
+  model: string; // native model id: tiny | base | small | medium
   polish: boolean;
 }
 
@@ -89,13 +89,13 @@ function loadPersisted(): Persisted {
     baseUrls: {},
     permissions: DEFAULT_PERMISSIONS,
     panel: 'ai',
-    voice: { engine: 'auto', lang: 'auto', model: 'Xenova/whisper-small', polish: true },
+    voice: { engine: 'auto', lang: 'auto', model: 'small', polish: true },
   };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) {
       const j = JSON.parse(raw) as Partial<Persisted>;
-      return { ...def, ...j, voice: { ...def.voice, ...j.voice }, permissions: { ...DEFAULT_PERMISSIONS, ...j.permissions, allow: { ...DEFAULT_PERMISSIONS.allow, ...j.permissions?.allow } } };
+      return { ...def, ...j, voice: { ...def.voice, ...j.voice, engine: (['auto', 'native', 'cloud', 'browser'] as const).includes(j.voice?.engine as never) ? j.voice!.engine : 'auto', model: ['tiny', 'base', 'small', 'medium'].includes(j.voice?.model ?? '') ? j.voice!.model : 'small' }, permissions: { ...DEFAULT_PERMISSIONS, ...j.permissions, allow: { ...DEFAULT_PERMISSIONS.allow, ...j.permissions?.allow } } };
     }
   } catch {
     /* ignore */
@@ -111,6 +111,7 @@ export interface AppState extends Persisted {
   clip: Clip | null;
   file: { name: string; path?: string; dirty: boolean };
   settingsOpen: boolean;
+  settingsTab: 'ai' | 'perm' | 'voice' | 'general';
   keys: Partial<Record<ProviderId, string>>;
   msgs: ChatMsg[];
   busy: boolean;
@@ -136,6 +137,7 @@ export const useStore = create<AppState>((set, get) => ({
   clip: null,
   file: { name: 'Untitled', dirty: false },
   settingsOpen: false,
+  settingsTab: 'ai',
   keys: {},
   msgs: [],
   busy: false,

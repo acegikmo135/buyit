@@ -8,6 +8,8 @@ import { SheetTabs } from './ui/SheetTabs';
 import { AiPanel } from './ui/AiPanel';
 import { HistoryPanel } from './ui/HistoryPanel';
 import { SettingsDialog } from './ui/SettingsDialog';
+import { VoicePill } from './ui/VoicePill';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { installFx } from './actions';
 import { setWindowTitle } from './platform';
 import { toggleDictation, dictationToFocus, cancelDictation, useVoice } from './voice/dictation';
@@ -55,6 +57,7 @@ export default function App() {
   }, [file]);
 
   return (
+    <TooltipProvider delayDuration={300}>
     <div className="app">
       <TopBar />
       <Toolbar />
@@ -68,7 +71,9 @@ export default function App() {
       </div>
       <SheetTabs />
       {settingsOpen && <SettingsDialog />}
+      <VoicePill />
       {toast && <div className="toast" role="status">{toast.text}</div>}
     </div>
+    </TooltipProvider>
   );
 }

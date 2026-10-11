@@ -6,7 +6,7 @@ import { summarize } from '../ai/executor';
 import { PROVIDERS } from '../ai/providers';
 import { useT } from '../i18n';
 import { focusGrid } from '../grid/GridCanvas';
-import { MicButton, VoiceStrip } from './MicButton';
+import { MicButton } from './MicButton';
 
 export function AiPanel() {
   const t = useT();
@@ -82,7 +82,6 @@ export function AiPanel() {
       </div>
 
       <footer className="composer">
-        <VoiceStrip />
         <div className="composer-box">
           <textarea
             ref={taRef}

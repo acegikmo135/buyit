@@ -12,14 +12,14 @@ Built with Tauri 2 (Rust + WebView2) and React. English and ગુજરાત�
 - **Permissions**: *Ask me first* (preview ghost cells on the sheet, tick/untick each action) · *Auto-apply* · *Read-only*; per-category allow list (write/format/structure/sheets/delete), *selection only* scope, confirm-destructive.
 - **Revert**: every AI run is one undoable transaction — "Revert" in chat, or restore any point in the History panel.
 - **Animated edits**: the AI "types" into cells with a glowing cursor and a fading highlight.
-- **Voice (free)**: dictate in English, Gujarati or a mix (`Ctrl+Shift+Space`). Uses system speech where the webview supports it, otherwise **on-device Whisper** (one-time model download, then offline). Smart clean-up removes fillers, fixes punctuation, and turns "a one to b five" into `A1:B5`; optionally polished with your AI key.
+- **Voice (free)**: dictate in English, Gujarati or a mix (`Ctrl+Shift+Space`) with a live waveform and live transcript. Runs **on-device with whisper.cpp** (quantized models, downloaded and managed in Settings → Voice with live progress, resume, mirror fallback and a log; the model unloads when idle to save RAM). Optional cloud transcription with your OpenAI/Groq/Gemini key. Smart clean-up removes fillers, fixes punctuation and turns "a one to b five" into `A1:B5`.
 - **Gujarati**: full UI translation, Gujarati/Devanagari digits accepted as numbers, Gujarati collation for sorting, bundled Noto Sans Gujarati, IME-safe editing.
 
 ## Develop
 ```bash
 cd aisheet
 npm install            # run on Windows/CI for full native deps
-npm run dev            # browser preview at http://localhost:1420
+
 npm test               # engine, AI-protocol and voice clean-up tests
 npm run tauri dev      # native window (needs Rust + WebView2)
 npm run tauri build    # NSIS + MSI installers
@@ -30,4 +30,4 @@ CI (`.github/workflows/aisheet-windows.yml`) builds the Windows installers on ev
 The model replies with JSON `{message, actions[]}` (set_range, fill_formula, format, sort, insert/delete rows/cols, sheets…) — provider-agnostic, no native tool-calling needed. Actions are screened against your permissions, dry-run on a clone for the preview, then applied in one transaction.
 
 ## Notes / not yet done
-Charts, conditional formatting, merged cells, pivot tables and macros are not implemented. The native Windows build was not compiled in the authoring environment (Linux, no WebView2); the web UI, engine and tests were. Whisper-small Gujarati accuracy is moderate — for best results use a cloud provider for the "smart clean-up" step.
+Charts, conditional formatting, merged cells, pivot tables and macros are not implemented. The native Windows build was not compiled in the authoring environment (Linux, no WebView2); the web UI, engine and tests were. Gujarati accuracy is best with the Small/Medium models or cloud transcription.

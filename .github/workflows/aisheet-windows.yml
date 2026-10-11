@@ -16,6 +16,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with: { workspaces: 'aisheet/src-tauri -> target' }
+      - name: Check LLVM/CMake (needed to compile whisper.cpp)
+        shell: pwsh
+        run: |
+          clang --version
+          cmake --version
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - run: npm ci
       - run: npm test
       - run: npx tauri build
