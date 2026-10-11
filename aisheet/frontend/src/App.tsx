@@ -2,7 +2,9 @@ import { useEffect } from 'react';
 import { Toast } from '@heroui/react';
 import { useStore } from './store';
 import { TopBar } from './ui/TopBar';
-import { Toolbar } from './ui/Toolbar';
+import { Ribbon } from './ui/Ribbon';
+import { DialogHost } from './ui/dialogs/DialogHost';
+import { FindBar } from './ui/dialogs/FindBar';
 import { FormulaBar } from './ui/FormulaBar';
 import { GridCanvas } from './grid/GridCanvas';
 import { SheetTabs } from './ui/SheetTabs';
@@ -30,6 +32,7 @@ export default function App() {
   const settingsOpen = useStore((s) => s.settingsOpen);
   const lang = useStore((s) => s.lang);
   const file = useStore((s) => s.file);
+  const dialog = useStore((s) => s.dialog);
   useApplyTheme();
 
   useEffect(() => {
@@ -58,6 +61,8 @@ export default function App() {
         if (k === 's') { e.preventDefault(); void saveFile(e.shiftKey); }
         else if (k === 'o') { e.preventDefault(); void openFile(); }
         else if (k === 'n' && !e.shiftKey) { e.preventDefault(); void newWorkbook(); }
+        else if (k === 'f') { e.preventDefault(); useStore.getState().set({ dialog: { kind: 'find' } }); }
+        else if (k === 'h') { e.preventDefault(); useStore.getState().set({ dialog: { kind: 'find', replace: true } }); }
         else if (k === 'k') { e.preventDefault(); const s = useStore.getState(); s.set({ panel: s.panel === 'ai' ? null : 'ai' }); }
       }
     };
@@ -77,17 +82,19 @@ export default function App() {
   return (
     <div className="bg-background text-foreground flex h-full flex-col">
       <TopBar />
-      <Toolbar />
+      <Ribbon />
       <FormulaBar />
       <div className="flex min-h-0 flex-1">
         <main className="relative min-w-0 flex-1">
           <GridCanvas />
+          {dialog?.kind === 'find' && <FindBar key={dialog.replace ? 'r' : 'f'} replace={!!dialog.replace} />}
         </main>
         {panel === 'ai' && <ChatPanel />}
         {panel === 'history' && <HistoryPanel />}
       </div>
       <SheetTabs />
       {settingsOpen && <SettingsModal />}
+      <DialogHost />
       <Toast.Provider placement="bottom end" />
     </div>
   );

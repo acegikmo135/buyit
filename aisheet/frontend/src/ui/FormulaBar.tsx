@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Chip, Input } from '@heroui/react';
+import { WandSparkles, Mic } from 'lucide-react';
+import { Button, Chip, Input } from '@heroui/react';
+import { Tip } from './Tip';
 import { useStore, wb, activeSheet, useWbVersion } from '../store';
 import { addr, parseRange, rangeToString, keyOf } from '../core/address';
 import * as A from '../actions';
@@ -72,6 +74,12 @@ export function FormulaBar() {
           if (s.editing?.from === 'bar') A.commitEdit('none');
         }}
       />
+      <Tip label={t('ai.formulaCreator')}>
+        <Button isIconOnly size="sm" variant="ghost" className="text-ai" aria-label={t('ai.formulaCreator')} onPress={() => A.openDialog({ kind: 'formula', mode: 'create' })}><WandSparkles size={16} /></Button>
+      </Tip>
+      <Tip label={t('ai.speakFormula')}>
+        <Button isIconOnly size="sm" variant="ghost" className="text-ai" aria-label={t('ai.speakFormula')} onPress={() => A.openDialog({ kind: 'formula', mode: 'create', autoVoice: true })}><Mic size={16} /></Button>
+      </Tip>
       {v instanceof FormulaError && !editing && <Chip color="danger" variant="soft" size="sm">{v.code}</Chip>}
     </div>
   );

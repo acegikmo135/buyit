@@ -75,6 +75,20 @@ export function formatNumber(n: number, fmt: NumFmt | undefined): string {
       return (n < 0 ? '-' : '') + '€' + fixed(Math.abs(n), 2, false, true);
     case 'currency_inr':
       return (n < 0 ? '-' : '') + '₹' + fixed(Math.abs(n), 2, true, true);
+    case 'datetime': {
+      const d = excelDateToJS(n);
+      const p2 = (v: number) => String(v).padStart(2, '0');
+      return `${p2(d.getUTCDate())}/${p2(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`;
+    }
+    case 'time': {
+      const d = excelDateToJS(n);
+      const p2 = (v: number) => String(v).padStart(2, '0');
+      return `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`;
+    }
+    case 'scientific':
+      return n.toExponential(2).toUpperCase().replace('E+', 'E+').replace(/E([+-])(\d)$/, 'E$10$2');
+    case 'accounting_inr':
+      return n < 0 ? `(₹${fixed(Math.abs(n), 2, true, true)})` : n === 0 ? '₹ -' : `₹${fixed(n, 2, true, true)} `;
     case 'date': {
       const d = excelDateToJS(n);
       const dd = String(d.getUTCDate()).padStart(2, '0');

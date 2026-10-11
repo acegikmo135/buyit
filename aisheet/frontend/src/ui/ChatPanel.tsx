@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react';
-import { AlertCircle, Check, Eye, Settings2, Sparkles, SquarePen, Undo2, X, Wand2, Table2, ArrowUpDown, MessageCircleQuestion } from 'lucide-react';
+import { AlertCircle, Check, CircleDashed, Eye, Loader2, Network, Search, Settings2, Sparkles, SquarePen, Undo2, X, Wand2, Table2, ArrowUpDown, MessageCircleQuestion } from 'lucide-react';
 import { Button, Card, Checkbox, Chip, Tooltip, ScrollShadow } from '@heroui/react';
 import { useStore, wb, providerModel, type ChatMsg } from '../store';
-import { approveProposal, clearChat, rejectProposal, revertMessage, toggleProposalAction, sendPrompt } from '../ai/agent';
+import { approveProposal, clearChat, rejectProposal, revertMessage, toggleProposalAction, sendPrompt, patchMsg, cancelPrompt } from '../ai/agent';
+import { runPlan, cancelPlan } from '../ai/orchestrator';
 import { summarize } from '../ai/executor';
 import { PROVIDERS } from '../ai/providers';
 import { Markdown } from './Markdown';
@@ -41,7 +42,15 @@ function Message({ m, last }: { m: ChatMsg; last: boolean }) {
     <div className="rise flex gap-3">
       <Avatar />
       <div className="min-w-0 flex-1">
+        {!!m.steps?.length && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {m.steps.map((x, i) => (
+              <Chip key={i} size="sm" variant="soft" className="text-[11px]"><Search size={11} />{x}</Chip>
+            ))}
+          </div>
+        )}
         {m.streaming && !m.text ? <span className="shimmer-text text-sm">{t('ai.thinking')}</span> : <Markdown text={m.text} streaming={m.streaming} />}
+        {m.agent && <AgentsCard msgId={m.id} />}
         {m.proposalId !== undefined && proposal?.id === m.proposalId && last && <ProposalCard />}
         {m.result && m.result.applied > 0 && (
           <div className="mt-3 flex items-center gap-2">
@@ -58,6 +67,57 @@ function Message({ m, last }: { m: ChatMsg; last: boolean }) {
         )}
       </div>
     </div>
+  );
+}
+
+function AgentsCard({ msgId }: { msgId: number }) {
+  const t = useT();
+  const msg = useStore((s) => s.msgs.find((m) => m.id === msgId));
+  const a = msg?.agent;
+  if (!a) return null;
+  const done = a.tasks.filter((x) => x.status === 'done').length;
+  const pct = Math.round((a.tasks.filter((x) => x.status === 'done' || x.status === 'error' || x.status === 'skipped').length / a.tasks.length) * 100);
+  const running = a.status === 'running' || a.status === 'merging';
+  return (
+    <Card variant="secondary" className="border-accent/30 mt-3 gap-3 border p-3.5">
+      <div className="text-accent flex items-center gap-2 text-sm font-semibold">
+        <Network size={15} /> {a.status === 'pending' ? t('agents.plan') : t('agents.title')}
+        <Chip size="sm" variant="soft" className="ml-auto">{a.status === 'pending' ? t('agents.count', { n: a.tasks.length }) : `${done}/${a.tasks.length}`}</Chip>
+      </div>
+      {a.goal && <p className="text-muted text-xs leading-5">{a.goal}</p>}
+      {a.status !== 'pending' && <div className="bg-default h-1.5 overflow-hidden rounded-full"><div className="bg-accent h-full rounded-full transition-all duration-500" style={{ width: `${pct}%` }} /></div>}
+      <ul className="flex flex-col gap-2">
+        {a.tasks.map((x) => (
+          <li key={x.id} className="bg-surface flex gap-2.5 rounded-lg border p-2.5">
+            <span className="mt-0.5 shrink-0">
+              {x.status === 'running' ? <Loader2 size={15} className="text-accent animate-spin" /> : x.status === 'done' ? <Check size={15} className="text-success" /> : x.status === 'error' ? <X size={15} className="text-danger" /> : x.status === 'skipped' ? <X size={15} className="text-muted" /> : <CircleDashed size={15} className="text-muted" />}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 text-[13px] font-medium">
+                {x.title}
+                {x.depends.length > 0 && <span className="text-muted text-[10px] font-normal">↳ {x.depends.join(', ')}</span>}
+                {x.status === 'done' && <span className="text-muted ml-auto text-[10px] font-normal">{t('agents.actions', { n: x.actions })}</span>}
+              </div>
+              <div className="text-muted mt-0.5 line-clamp-2 text-xs leading-5">
+                {x.status === 'running' && x.text ? x.text.slice(-160) : x.status === 'error' || x.error ? x.error : x.status === 'done' ? x.text.split('\n')[0] : x.instruction}
+              </div>
+              {x.steps.length > 0 && x.status === 'running' && <div className="text-muted mt-1 text-[10px]">{x.steps[x.steps.length - 1]}</div>}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {a.status === 'pending' && (
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="ghost" onPress={() => patchMsg(msgId, { agent: undefined })}>{t('agents.dismiss')}</Button>
+          <Button size="sm" variant="primary" onPress={() => void runPlan(msgId)}><Network size={14} />{t('agents.run', { n: a.tasks.length })}</Button>
+        </div>
+      )}
+      {running && (
+        <div className="flex justify-end">
+          <Button size="sm" variant="tertiary" onPress={() => { cancelPlan(); cancelPrompt(); }}>{a.status === 'merging' ? t('agents.merging') : t('agents.cancel')}</Button>
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -83,6 +143,11 @@ function ProposalCard() {
           );
         })}
       </ul>
+      {p.preview.newErrors.length > 0 && (
+        <div className="bg-danger/10 text-danger rounded-lg px-3 py-2 text-xs leading-5">
+          <b>{t('prop.errors', { n: p.preview.newErrors.length })}</b> {p.preview.newErrors.slice(0, 3).map((e) => `${e.sheet}!${e.ref}`).join(', ')}
+        </div>
+      )}
       <p className="text-muted text-xs">{p.preview.structural ? t('prop.structural') + ' ' : ''}{t('prop.previewHint')}</p>
       <div className="flex justify-end gap-2">
         <Button size="sm" variant="ghost" onPress={rejectProposal}><X size={14} />{t('prop.reject')}</Button>

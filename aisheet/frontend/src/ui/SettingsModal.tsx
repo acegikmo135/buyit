@@ -185,6 +185,9 @@ export function SettingsModal() {
                     <div className="text-success flex items-center gap-1.5 text-xs"><ShieldCheck size={14} />{s.strictPrivacy ? t('set.privacy.on') : t('set.privacy.off')}</div>
                   </div>
                 )}
+                <Row title={t('set.multiAgent')} hint={t('set.multiAgent.d')}>
+                  <Switch aria-label={t('set.multiAgent')} isSelected={s.multiAgent} onChange={(v) => s.set({ multiAgent: v })}><Switch.Control><Switch.Thumb /></Switch.Control></Switch>
+                </Row>
                 <div className="flex items-center justify-end gap-3">
                   <div className="mr-auto"><StatusLine s={status} /></div>
                   <Button variant="primary" onPress={test} isDisabled={status.kind === 'busy'}><Zap size={15} />{t('set.test')}</Button>

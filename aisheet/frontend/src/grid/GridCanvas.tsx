@@ -1,26 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useStore, useWbVersion, wb, selectionRange } from '../store';
-import { addr, colToName, keyOf, normRange, type Range } from '../core/address';
-import { displayValue } from '../core/format';
-import { FormulaError } from '../core/types';
+import { addr, keyOf, type Range } from '../core/address';
 import { buildAxis, indexAt, DEF_COL_W, DEF_ROW_H, HEADER_H, HEADER_W } from './layout';
-import { fxFor, fxTick, subscribeFx, FADE_MS } from './fx';
+import { fxFor, fxTick, subscribeFx } from './fx';
+import { renderGrid, readTheme, filterBtnRect, dvBtnRect, type Theme } from './render';
+import { FONT_FAMILY, FONT_SIZE } from './measure';
 import * as A from '../actions';
 import { ContextMenu, type MenuItem } from '../ui/ContextMenu';
+import { FilterMenu, DvMenu, CommentTip } from '../ui/GridPopups';
+import { ChartView } from '../ui/ChartView';
 import { useT } from '../i18n';
-
-const FONT_FAMILY = '"Inter Variable", "Noto Sans Gujarati Variable", "Nirmala UI", "Shruti", "Segoe UI", system-ui, sans-serif';
-const FONT_SIZE = 13;
-
-interface Theme {
-  bg: string; line: string; headBg: string; headText: string; headActive: string; text: string; accent: string; accentSoft: string; sel: string; ai: string; aiSoft: string; muted: string;
-}
-
-function readTheme(el: HTMLElement): Theme {
-  const cs = getComputedStyle(el);
-  const v = (n: string) => cs.getPropertyValue(n).trim();
-  return { bg: v('--grid-bg'), line: v('--grid-line'), headBg: v('--head-bg'), headText: v('--head-text'), headActive: v('--head-active'), text: v('--text'), accent: v('--accent'), accentSoft: v('--accent-soft'), sel: v('--sel'), ai: v('--ai'), aiSoft: v('--ai-soft'), muted: v('--muted') };
-}
 
 type Drag =
   | { kind: 'select' }
@@ -44,6 +33,8 @@ export function GridCanvas() {
   const editing = useStore((s) => s.editing);
   const clip = useStore((s) => s.clip);
   const proposal = useStore((s) => s.proposal);
+  const zoom = useStore((s) => s.zoom);
+  const find = useStore((s) => s.find);
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -52,26 +43,37 @@ export function GridCanvas() {
   const [size, setSize] = useState({ w: 800, h: 500 });
   const [grow, setGrow] = useState({ r: 0, c: 0 });
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [filterMenu, setFilterMenu] = useState<{ col: number; x: number; y: number } | null>(null);
+  const [dvMenu, setDvMenu] = useState<{ r: number; c: number; items: string[]; x: number; y: number } | null>(null);
+  const [tip, setTip] = useState<{ text: string; x: number; y: number; key: number } | null>(null);
   const dragRef = useRef<Drag | null>(null);
   const hoverRef = useRef<string>('default');
   const fillTarget = useRef<Range | null>(null);
   const themeRef = useRef<Theme | null>(null);
   const rafRef = useRef(0);
   const composing = useRef(false);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
 
   const sheet = wb.sheetById(activeSheetId) ?? wb.sheets[0];
 
-  // ---------- axes ----------
+  // ---------- axes (hidden / filtered rows and hidden columns collapse to zero size) ----------
   const dims = useMemo(() => {
     const ub = wb.usedBounds(sheet);
     const nRows = Math.max(100, ub.r + 40, grow.r, active.r + 30);
     const nCols = Math.max(26, ub.c + 8, grow.c, active.c + 8);
-    return {
-      nRows,
-      nCols,
-      rows: buildAxis(nRows, DEF_ROW_H, sheet.rowH),
-      cols: buildAxis(nCols, DEF_COL_W, sheet.colW),
-    };
+    let rowOver = sheet.rowH;
+    if (sheet.hiddenRows.size || sheet.filterHidden.size) {
+      rowOver = new Map(sheet.rowH);
+      sheet.hiddenRows.forEach((r) => rowOver.set(r, 0));
+      sheet.filterHidden.forEach((r) => rowOver.set(r, 0));
+    }
+    let colOver = sheet.colW;
+    if (sheet.hiddenCols.size) {
+      colOver = new Map(sheet.colW);
+      sheet.hiddenCols.forEach((c) => colOver.set(c, 0));
+    }
+    return { nRows, nCols, rows: buildAxis(nRows, DEF_ROW_H, rowOver), cols: buildAxis(nCols, DEF_COL_W, colOver) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ver, sheet.id, grow.r, grow.c, active.r, active.c]);
 
@@ -84,51 +86,23 @@ export function GridCanvas() {
     const canvas = canvasRef.current;
     const scroller = scrollerRef.current;
     if (!canvas || !scroller) return;
+    const Z = zoomRef.current;
     const dpr = window.devicePixelRatio || 1;
-    const W = scroller.clientWidth;
-    const H = scroller.clientHeight;
-    if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) {
-      canvas.width = Math.round(W * dpr);
-      canvas.height = Math.round(H * dpr);
-      canvas.style.width = W + 'px';
-      canvas.style.height = H + 'px';
+    const cwPx = scroller.clientWidth;
+    const chPx = scroller.clientHeight;
+    if (canvas.width !== Math.round(cwPx * dpr) || canvas.height !== Math.round(chPx * dpr)) {
+      canvas.width = Math.round(cwPx * dpr);
+      canvas.height = Math.round(chPx * dpr);
+      canvas.style.width = cwPx + 'px';
+      canvas.style.height = chPx + 'px';
     }
     const ctx = canvas.getContext('2d')!;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.setTransform(dpr * Z, 0, 0, dpr * Z, 0, 0);
     const th = (themeRef.current ??= readTheme(wrapRef.current!));
     const s = useStore.getState();
     const sh = wb.sheetById(s.activeSheetId) ?? wb.sheets[0];
     const { rows, cols, nRows, nCols } = dimsRef.current;
-    const sl = scroller.scrollLeft;
-    const st = scroller.scrollTop;
     const now = performance.now();
-    const fx = fxFor(sh.id);
-    const prevMap = s.proposal?.preview.bySheet.get(sh.id);
-
-    const FR = Math.min(sh.freezeRows, nRows);
-    const FC = Math.min(sh.freezeCols, nCols);
-    const frozenW = cols.off[FC];
-    const frozenH = rows.off[FR];
-
-    const sx = (c: number) => HEADER_W + cols.off[c] - (c < FC ? 0 : sl);
-    const sy = (r: number) => HEADER_H + rows.off[r] - (r < FR ? 0 : st);
-    const cw = (c: number) => cols.off[c + 1] - cols.off[c];
-    const rh = (r: number) => rows.off[r + 1] - rows.off[r];
-
-    const firstC = indexAt(cols, sl + frozenW);
-    const lastC = indexAt(cols, sl + W - HEADER_W);
-    const firstR = indexAt(rows, st + frozenH);
-    const lastR = indexAt(rows, st + H - HEADER_H);
-    const range = (a: number, b: number) => Array.from({ length: Math.max(0, b - a + 1) }, (_, i) => a + i);
-    const scrollCols = range(Math.max(firstC, FC), lastC);
-    const scrollRows = range(Math.max(firstR, FR), lastR);
-    const frozenCols = range(0, FC - 1);
-    const frozenRows = range(0, FR - 1);
-
-    ctx.fillStyle = th.bg;
-    ctx.fillRect(0, 0, W, H);
-
-    const baseFont = (st?: { b?: boolean; i?: boolean }) => `${st?.i ? 'italic ' : ''}${st?.b ? 600 : 400} ${FONT_SIZE}px ${FONT_FAMILY}`;
     const measure = (text: string, font: string) => {
       const k = font + '|' + text;
       let w = measureCache.get(k);
@@ -140,328 +114,17 @@ export function GridCanvas() {
       }
       return w;
     };
-
-    let aiCursor: { x: number; y: number; w: number; h: number } | null = null;
-
-    const drawRegion = (rs: number[], cs: number[], x0: number, y0: number, x1: number, y1: number) => {
-      if (!rs.length || !cs.length) return;
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(x0, y0, x1 - x0, y1 - y0);
-      ctx.clip();
-      // backgrounds
-      for (const r of rs) {
-        const y = sy(r);
-        const h = rh(r);
-        for (const c of cs) {
-          const cell = sh.cells.get(keyOf(r, c));
-          const bg = cell?.style?.bg;
-          if (bg) {
-            ctx.fillStyle = bg;
-            ctx.fillRect(sx(c), y, cw(c), h);
-          }
-        }
-      }
-      // gridlines
-      ctx.strokeStyle = th.line;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      for (const r of rs) {
-        const y = Math.round(sy(r) + rh(r)) - 0.5;
-        ctx.moveTo(x0, y);
-        ctx.lineTo(x1, y);
-      }
-      for (const c of cs) {
-        const x = Math.round(sx(c) + cw(c)) - 0.5;
-        ctx.moveTo(x, y0);
-        ctx.lineTo(x, y1);
-      }
-      ctx.stroke();
-      // text
-      ctx.textBaseline = 'middle';
-      for (const r of rs) {
-        const y = sy(r);
-        const h = rh(r);
-        if (y + h < y0 || y > y1) continue;
-        for (const c of cs) {
-          const x = sx(c);
-          const w = cw(c);
-          if (x + w < x0 || x > x1) continue;
-          const key = keyOf(r, c);
-          const cell = sh.cells.get(key);
-          const style = cell?.style;
-          const pv = prevMap?.get(key);
-          const e = fx?.get(key);
-          let text = '';
-          let v: ReturnType<typeof wb.value> = null;
-          if (cell) {
-            v = wb.value(sh, r, c);
-            text = displayValue(v, style);
-          }
-          let glow = 0;
-          let typing = false;
-          if (e) {
-            const tt = now - e.start - e.delay;
-            if (tt < 0) text = e.prev;
-            else if (e.kind === 'ai' && tt < e.typeMs) {
-              const chars = [...e.next];
-              text = chars.slice(0, Math.max(0, Math.ceil((tt / e.typeMs) * chars.length))).join('');
-              glow = 1;
-              typing = true;
-            } else {
-              text = e.next;
-              glow = Math.max(0, 1 - (tt - (e.kind === 'ai' ? e.typeMs : 0)) / FADE_MS);
-            }
-            if (glow > 0) {
-              ctx.fillStyle = th.ai;
-              ctx.globalAlpha = glow * (typing ? 0.28 : 0.22);
-              ctx.fillRect(x, y, w, h);
-              ctx.globalAlpha = 1;
-              ctx.strokeStyle = th.ai;
-              ctx.globalAlpha = Math.min(1, glow * 1.2);
-              ctx.lineWidth = typing ? 2 : 1.5;
-              ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
-              ctx.globalAlpha = 1;
-              ctx.lineWidth = 1;
-            }
-            if (typing) aiCursor = { x, y, w, h };
-          }
-          let color = style?.color || (style?.bg ? contrastText(style.bg, th.text) : th.text);
-          let font = baseFont(style);
-          if (pv) {
-            ctx.fillStyle = th.aiSoft;
-            ctx.fillRect(x, y, w, h);
-            ctx.save();
-            ctx.setLineDash([4, 3]);
-            ctx.strokeStyle = th.ai;
-            ctx.lineWidth = 1.25;
-            ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
-            ctx.restore();
-            text = pv.text;
-            color = th.ai;
-            font = baseFont({ ...style, i: true });
-            v = pv.text;
-          }
-          if (!text) continue;
-          const isNum = typeof v === 'number';
-          const isErr = v instanceof FormulaError;
-          let align = style?.align ?? (isNum ? 'right' : isErr || typeof v === 'boolean' ? 'center' : 'left');
-          if (isErr) color = '#ef4444';
-          ctx.font = font;
-          ctx.fillStyle = color;
-          const pad = 6;
-          let tw = measure(text, font);
-          if (isNum && !e && !pv && tw > w - pad * 2) {
-            text = '#'.repeat(Math.max(1, Math.floor((w - pad * 2) / 8)));
-            tw = measure(text, font);
-            align = 'center';
-          }
-          let availL = x;
-          let availR = x + w;
-          if (align === 'left' && tw > w - pad * 2 && !style?.wrap) {
-            // overflow into empty neighbours
-            let cc = c + 1;
-            while (cc < nCols && availR - x < tw + pad * 2 + 4 && !sh.cells.has(keyOf(r, cc)) && cc - c < 30) {
-              availR += cw(cc);
-              cc++;
-            }
-          } else if (align === 'right' && tw > w - pad * 2 && !style?.wrap) {
-            let cc = c - 1;
-            while (cc >= 0 && x + w - availL < tw + pad * 2 + 4 && !sh.cells.has(keyOf(r, cc)) && c - cc < 30) {
-              availL -= cw(cc);
-              cc--;
-            }
-          }
-          const needClip = tw > availR - availL - pad * 2 || !!style?.wrap;
-          if (needClip) {
-            ctx.save();
-            ctx.beginPath();
-            ctx.rect(availL + 1, y, availR - availL - 2, h);
-            ctx.clip();
-          }
-          if (style?.wrap) {
-            const lines = wrapLines(text, w - pad * 2, (s2) => measure(s2, font));
-            const lh = FONT_SIZE + 5;
-            const startY = y + Math.max(3, (h - lines.length * lh) / 2) + lh / 2;
-            lines.forEach((ln, i) => {
-              const lw = measure(ln, font);
-              const tx = align === 'right' ? x + w - pad - lw : align === 'center' ? x + (w - lw) / 2 : x + pad;
-              ctx.fillText(ln, tx, startY + i * lh);
-            });
-          } else {
-            const tx = align === 'right' ? availR - pad - tw : align === 'center' ? x + (w - tw) / 2 : availL + pad;
-            const ty = y + h / 2 + 0.5;
-            ctx.fillText(text, tx, ty);
-            if (style?.u) {
-              ctx.fillRect(tx, ty + FONT_SIZE / 2 + 1, tw, 1);
-            }
-            if (typing) {
-              ctx.fillStyle = th.ai;
-              ctx.fillRect(tx + tw + 1, y + 5, 1.5, h - 10);
-            }
-          }
-          if (needClip) ctx.restore();
-        }
-      }
-      ctx.restore();
-    };
-
-    const gx0 = HEADER_W;
-    const gy0 = HEADER_H;
-    drawRegion(scrollRows, scrollCols, gx0 + frozenW, gy0 + frozenH, W, H);
-    drawRegion(frozenRows, scrollCols, gx0 + frozenW, gy0, W, gy0 + frozenH);
-    drawRegion(scrollRows, frozenCols, gx0, gy0 + frozenH, gx0 + frozenW, H);
-    drawRegion(frozenRows, frozenCols, gx0, gy0, gx0 + frozenW, gy0 + frozenH);
-
-    // freeze separators
-    ctx.strokeStyle = th.muted;
-    ctx.lineWidth = 1;
-    if (FC) {
-      ctx.beginPath();
-      ctx.moveTo(gx0 + frozenW + 0.5, gy0);
-      ctx.lineTo(gx0 + frozenW + 0.5, H);
-      ctx.stroke();
-    }
-    if (FR) {
-      ctx.beginPath();
-      ctx.moveTo(gx0, gy0 + frozenH + 0.5);
-      ctx.lineTo(W, gy0 + frozenH + 0.5);
-      ctx.stroke();
-    }
-
-    // selection
-    const selFull = normRange({ r1: s.anchor.r, c1: s.anchor.c, r2: s.active.r, c2: s.active.c });
-    const sel = { r1: Math.min(selFull.r1, nRows - 1), c1: Math.min(selFull.c1, nCols - 1), r2: Math.min(selFull.r2, nRows - 1), c2: Math.min(selFull.c2, nCols - 1) };
-    const clipArea = new Path2D();
-    clipArea.rect(gx0, gy0, W - gx0, H - gy0);
-    ctx.save();
-    ctx.clip(clipArea);
-    if (s.clip && s.clip.sheetId === sh.id) {
-      const cr = s.clip.range;
-      ctx.save();
-      ctx.setLineDash([5, 4]);
-      ctx.lineDashOffset = -(now / 60) % 9;
-      ctx.strokeStyle = th.accent;
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(sx(cr.c1) + 0.5, sy(cr.r1) + 0.5, sx(cr.c2) + cw(cr.c2) - sx(cr.c1) - 1, sy(cr.r2) + rh(cr.r2) - sy(cr.r1) - 1);
-      ctx.restore();
-    }
-    const rx = sx(sel.c1);
-    const ry = sy(sel.r1);
-    const rw = sx(sel.c2) + cw(sel.c2) - rx;
-    const rhh = sy(sel.r2) + rh(sel.r2) - ry;
-    const multi = sel.r1 !== sel.r2 || sel.c1 !== sel.c2;
-    if (multi) {
-      ctx.fillStyle = th.sel;
-      ctx.fillRect(rx, ry, rw, rhh);
-    }
-    ctx.strokeStyle = th.accent;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(rx + 1, ry + 1, rw - 2, rhh - 2);
-    if (multi) {
-      const ax = sx(s.active.c);
-      const ay = sy(s.active.r);
-      ctx.lineWidth = 1;
-      ctx.fillStyle = th.bg;
-      ctx.globalAlpha = 0.0;
-      ctx.globalAlpha = 1;
-      ctx.strokeRect(ax + 1.5, ay + 1.5, cw(s.active.c) - 3, rh(s.active.r) - 3);
-    }
-    // fill handle
-    ctx.fillStyle = th.accent;
-    ctx.fillRect(rx + rw - 4, ry + rhh - 4, 7, 7);
-    ctx.strokeStyle = th.bg;
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(rx + rw - 4, ry + rhh - 4, 7, 7);
-    if (fillTarget.current) {
-      const f = fillTarget.current;
-      ctx.setLineDash([4, 3]);
-      ctx.strokeStyle = th.accent;
-      ctx.lineWidth = 1.5;
-      const fx0 = sx(f.c1);
-      const fy0 = sy(f.r1);
-      ctx.strokeRect(fx0 + 0.5, fy0 + 0.5, sx(f.c2) + cw(f.c2) - fx0 - 1, sy(f.r2) + rh(f.r2) - fy0 - 1);
-      ctx.setLineDash([]);
-    }
-    // AI cursor tag
-    if (aiCursor) {
-      const ac: { x: number; y: number; w: number; h: number } = aiCursor;
-      ctx.font = `600 10px ${FONT_FAMILY}`;
-      const label = 'AI';
-      const lw = 22;
-      ctx.fillStyle = th.ai;
-      const ty = ac.y - 15 < gy0 ? ac.y + ac.h + 1 : ac.y - 15;
-      ctx.beginPath();
-      ctx.roundRect(ac.x, ty, lw, 14, 4);
-      ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(label, ac.x + 5, ty + 7.5);
-    }
-    ctx.restore();
-
-    // headers
-    ctx.fillStyle = th.headBg;
-    ctx.fillRect(0, 0, W, HEADER_H);
-    ctx.fillRect(0, 0, HEADER_W, H);
-    ctx.font = `500 11.5px ${FONT_FAMILY}`;
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'center';
-    const hdrCols = [...frozenCols, ...scrollCols];
-    const hdrRows = [...frozenRows, ...scrollRows];
-    const drawColHeads = (list: number[], clipX0: number) => {
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(clipX0, 0, W - clipX0, HEADER_H);
-      ctx.clip();
-      for (const c of list) {
-        const x = sx(c);
-        const w = cw(c);
-        const on = c >= sel.c1 && c <= sel.c2;
-        if (on) {
-          ctx.fillStyle = th.headActive;
-          ctx.fillRect(x, 0, w, HEADER_H);
-        }
-        ctx.fillStyle = on ? th.accent : th.headText;
-        ctx.fillText(colToName(c), x + w / 2, HEADER_H / 2 + 0.5);
-        ctx.fillStyle = th.line;
-        ctx.fillRect(Math.round(x + w) - 1, 0, 1, HEADER_H);
-      }
-      ctx.restore();
-    };
-    drawColHeads(scrollCols, gx0 + frozenW);
-    drawColHeads(frozenCols, gx0);
-    const drawRowHeads = (list: number[], clipY0: number) => {
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(0, clipY0, HEADER_W, H - clipY0);
-      ctx.clip();
-      for (const r of list) {
-        const y = sy(r);
-        const h = rh(r);
-        const on = r >= sel.r1 && r <= sel.r2;
-        if (on) {
-          ctx.fillStyle = th.headActive;
-          ctx.fillRect(0, y, HEADER_W, h);
-        }
-        ctx.fillStyle = on ? th.accent : th.headText;
-        ctx.fillText(String(r + 1), HEADER_W / 2, y + h / 2 + 0.5);
-        ctx.fillStyle = th.line;
-        ctx.fillRect(0, Math.round(y + h) - 1, HEADER_W, 1);
-      }
-      ctx.restore();
-    };
-    drawRowHeads(scrollRows, gy0 + frozenH);
-    drawRowHeads(frozenRows, gy0);
-    void hdrCols;
-    void hdrRows;
-    ctx.textAlign = 'start';
-    ctx.fillStyle = th.line;
-    ctx.fillRect(0, HEADER_H - 1, W, 1);
-    ctx.fillRect(HEADER_W - 1, 0, 1, H);
-    ctx.fillStyle = th.headBg;
-    ctx.fillRect(0, 0, HEADER_W - 1, HEADER_H - 1);
-
+    const fxMap = fxFor(sh.id);
+    renderGrid({
+      ctx, W: cwPx / Z, H: chPx / Z, th, wb, sh, rows, cols, nRows, nCols,
+      sl: scroller.scrollLeft / Z, st: scroller.scrollTop / Z, now,
+      fx: fxMap, prevMap: s.proposal?.preview.bySheet.get(sh.id),
+      anchor: s.anchor, active: s.active,
+      clipRange: s.clip && s.clip.sheetId === sh.id ? s.clip.range : null,
+      fillTarget: fillTarget.current, measure,
+      searchHits: s.find && s.find.sheetId === sh.id ? new Set(s.find.keys) : undefined,
+      currentHit: s.find ? s.find.keys[s.find.idx] ?? null : null,
+    });
     const animating = fxTick(now) || !!s.clip;
     if (animating) rafRef.current = requestAnimationFrame(draw);
   }, []);
@@ -470,17 +133,15 @@ export function GridCanvas() {
     if (!rafRef.current) rafRef.current = requestAnimationFrame(draw);
   }, [draw]);
 
-  // redraw triggers
   useEffect(() => {
     requestDraw();
-  }, [ver, activeSheetId, anchor, active, editing, clip, proposal, size, dims, requestDraw]);
+  }, [ver, activeSheetId, anchor, active, editing, clip, proposal, size, dims, zoom, find, requestDraw]);
   useEffect(() => {
     const off = subscribeFx(requestDraw);
     return () => {
       off();
     };
   }, [requestDraw]);
-
 
   useEffect(() => {
     const h = () => {
@@ -496,49 +157,66 @@ export function GridCanvas() {
     return () => window.removeEventListener('aisheet-theme', h);
   }, [requestDraw]);
 
-  // resize
   useLayoutEffect(() => {
     const el = scrollerRef.current!;
-    const ro = new ResizeObserver(() => {
-      setSize({ w: el.clientWidth, h: el.clientHeight });
-    });
+    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }));
     ro.observe(el);
     setSize({ w: el.clientWidth, h: el.clientHeight });
     return () => ro.disconnect();
   }, []);
 
-  // ---------- geometry helpers for interaction ----------
+  // Ctrl + wheel zooms (needs a non-passive listener to cancel the browser's page zoom)
+  useEffect(() => {
+    const el = scrollerRef.current!;
+    const h = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const z = Math.max(0.5, Math.min(2, +(useStore.getState().zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)).toFixed(2)));
+      useStore.getState().set({ zoom: z });
+    };
+    el.addEventListener('wheel', h, { passive: false });
+    return () => el.removeEventListener('wheel', h);
+  }, []);
+
+  // ---------- geometry (all in unzoomed "sheet" pixels) ----------
   const geom = () => {
-    const sc = scrollerRef.current as HTMLDivElement; // null only during the very first render
+    const sc = scrollerRef.current as HTMLDivElement;
+    const Z = zoomRef.current;
     const { rows, cols, nRows, nCols } = dimsRef.current;
     const FR = Math.min(sheet.freezeRows, nRows);
     const FC = Math.min(sheet.freezeCols, nCols);
-    return { sc, rows, cols, nRows, nCols, FR, FC, sl: sc?.scrollLeft ?? 0, st: sc?.scrollTop ?? 0 };
+    return { sc, Z, rows, cols, nRows, nCols, FR, FC, sl: (sc?.scrollLeft ?? 0) / Z, st: (sc?.scrollTop ?? 0) / Z, vw: (sc?.clientWidth ?? 800) / Z, vh: (sc?.clientHeight ?? 500) / Z };
   };
 
   const colAtX = (x: number) => {
     const g = geom();
     const cx = x - HEADER_W;
-    const content = cx < g.cols.off[g.FC] ? cx : cx + g.sl;
-    return indexAt(g.cols, content);
+    return indexAt(g.cols, cx < g.cols.off[g.FC] ? cx : cx + g.sl);
   };
   const rowAtY = (y: number) => {
     const g = geom();
     const cy = y - HEADER_H;
-    const content = cy < g.rows.off[g.FR] ? cy : cy + g.st;
-    return indexAt(g.rows, content);
+    return indexAt(g.rows, cy < g.rows.off[g.FR] ? cy : cy + g.st);
   };
-  const cellScreenRect = (r: number, c: number) => {
+  const cellRect = (r: number, c: number) => {
     const g = geom();
     const x = HEADER_W + g.cols.off[c] - (c < g.FC ? 0 : g.sl);
     const y = HEADER_H + g.rows.off[r] - (r < g.FR ? 0 : g.st);
     return { x, y, w: g.cols.off[c + 1] - g.cols.off[c], h: g.rows.off[r + 1] - g.rows.off[r] };
   };
+  /** rect of a cell, expanded to its merged block */
+  const logicalRect = (r: number, c: number) => {
+    const m = wb.mergeAt(sheet, r, c);
+    if (!m) return cellRect(r, c);
+    const a = cellRect(m.r1, m.c1);
+    const b = cellRect(m.r2, m.c2);
+    return { x: a.x, y: a.y, w: b.x + b.w - a.x, h: b.y + b.h - a.y };
+  };
 
-  // scroll active cell into view
+  // scroll the active cell into view
   useEffect(() => {
     const g = geom();
-    const { sc } = g;
+    const { sc, Z } = g;
     if (!sc) return;
     const x = g.cols.off[active.c];
     const x2 = g.cols.off[active.c + 1];
@@ -546,56 +224,90 @@ export function GridCanvas() {
     const y2 = g.rows.off[active.r + 1];
     const fw = g.cols.off[g.FC];
     const fh = g.rows.off[g.FR];
-    const vw = sc.clientWidth - HEADER_W;
-    const vh = sc.clientHeight - HEADER_H;
+    const vw = g.vw - HEADER_W;
+    const vh = g.vh - HEADER_H;
     if (active.c >= g.FC) {
-      if (x - fw < sc.scrollLeft) sc.scrollLeft = x - fw;
-      else if (x2 > sc.scrollLeft + vw) sc.scrollLeft = x2 - vw;
+      if (x - fw < g.sl) sc.scrollLeft = (x - fw) * Z;
+      else if (x2 > g.sl + vw) sc.scrollLeft = (x2 - vw) * Z;
     }
     if (active.r >= g.FR) {
-      if (y - fh < sc.scrollTop) sc.scrollTop = y - fh;
-      else if (y2 > sc.scrollTop + vh) sc.scrollTop = y2 - vh;
+      if (y - fh < g.st) sc.scrollTop = (y - fh) * Z;
+      else if (y2 > g.st + vh) sc.scrollTop = (y2 - vh) * Z;
     }
     requestDraw();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active.r, active.c, sheet.id]);
 
+  const [sp, setSp] = useState({ x: 0, y: 0, w: 1200, h: 800 });
+  useEffect(() => {
+    const sc = scrollerRef.current;
+    if (!sc) return;
+    const ro = new ResizeObserver(() => setSp({ x: sc.scrollLeft, y: sc.scrollTop, w: sc.clientWidth, h: sc.clientHeight }));
+    ro.observe(sc);
+    return () => ro.disconnect();
+  }, []);
+
   const onScroll = () => {
     const sc = scrollerRef.current!;
     const g = dimsRef.current;
-    if (sc.scrollTop + sc.clientHeight > g.rows.off[g.nRows] + HEADER_H - 200) setGrow((p) => ({ ...p, r: g.nRows + 100 }));
-    if (sc.scrollLeft + sc.clientWidth > g.cols.off[g.nCols] + HEADER_W - 200) setGrow((p) => ({ ...p, c: g.nCols + 10 }));
+    const Z = zoomRef.current;
+    if (sc.scrollTop + sc.clientHeight > (g.rows.off[g.nRows] + HEADER_H) * Z - 200) setGrow((p) => ({ ...p, r: g.nRows + 100 }));
+    if (sc.scrollLeft + sc.clientWidth > (g.cols.off[g.nCols] + HEADER_W) * Z - 200) setGrow((p) => ({ ...p, c: g.nCols + 10 }));
+    setFilterMenu(null);
+    setDvMenu(null);
+    setSp({ x: sc.scrollLeft, y: sc.scrollTop, w: sc.clientWidth, h: sc.clientHeight });
     requestDraw();
   };
 
   // ---------- pointer interaction ----------
+  const localXY = (e: { clientX: number; clientY: number }) => {
+    const rect = scrollerRef.current!.getBoundingClientRect();
+    const Z = zoomRef.current;
+    return { x: (e.clientX - rect.left) / Z, y: (e.clientY - rect.top) / Z };
+  };
+
   const hit = (x: number, y: number) => {
-    const g = geom();
     if (x < HEADER_W && y < HEADER_H) return { type: 'corner' as const };
     if (y < HEADER_H) {
       const c = colAtX(x);
-      const rect = cellScreenRect(0, c);
+      const rect = cellRect(0, c);
       if (Math.abs(x - (rect.x + rect.w)) < 4) return { type: 'colEdge' as const, c };
-      if (c > 0 && Math.abs(x - rect.x) < 4 && c - 1 >= 0) return { type: 'colEdge' as const, c: c - 1 };
+      if (c > 0 && Math.abs(x - rect.x) < 4) return { type: 'colEdge' as const, c: c - 1 };
       return { type: 'colHeader' as const, c };
     }
     if (x < HEADER_W) {
       const r = rowAtY(y);
-      const rect = cellScreenRect(r, 0);
+      const rect = cellRect(r, 0);
       if (Math.abs(y - (rect.y + rect.h)) < 3) return { type: 'rowEdge' as const, r };
       return { type: 'rowHeader' as const, r };
     }
-    // fill handle
     const R = selectionRange();
-    const br = cellScreenRect(R.r2, R.c2);
+    const br = logicalRect(Math.min(R.r2, dimsRef.current.nRows - 1), Math.min(R.c2, dimsRef.current.nCols - 1));
     if (Math.abs(x - (br.x + br.w)) < 6 && Math.abs(y - (br.y + br.h)) < 6) return { type: 'handle' as const };
-    void g;
-    return { type: 'cell' as const, r: rowAtY(y), c: colAtX(x) };
+    const r = rowAtY(y);
+    const c = colAtX(x);
+    const f = sheet.filter;
+    if (f && r === f.range.r1 && c >= f.range.c1 && c <= f.range.c2) {
+      const b = filterBtnRect(...(Object.values(cellRect(r, c)) as [number, number, number, number]));
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return { type: 'filterBtn' as const, r, c };
+    }
+    const st = useStore.getState();
+    if (st.active.r === r && st.active.c === c) {
+      const dv = sheet.validations.find((v) => v.kind === 'list' && r >= v.range.r1 && r <= v.range.r2 && c >= v.range.c1 && c <= v.range.c2);
+      if (dv) {
+        const b = dvBtnRect(...(Object.values(cellRect(r, c)) as [number, number, number, number]));
+        if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return { type: 'dvBtn' as const, r, c };
+      }
+    }
+    return { type: 'cell' as const, r, c };
   };
 
-  const localXY = (e: { clientX: number; clientY: number }) => {
-    const rect = scrollerRef.current!.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  const selectCell = (r: number, c: number, extend: boolean) => {
+    const s = useStore.getState();
+    const m = wb.mergeAt(sheet, r, c);
+    if (m && !extend) s.select({ r: m.r1, c: m.c1 }, { r: m.r2, c: m.c2 });
+    else if (extend) s.select(s.anchor, { r, c });
+    else s.select({ r, c });
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -604,18 +316,20 @@ export function GridCanvas() {
       const h = hit(x, y);
       if (h.type === 'cell') {
         const R = selectionRange();
-        if (!(h.r >= R.r1 && h.r <= R.r2 && h.c >= R.c1 && h.c <= R.c2)) useStore.getState().select({ r: h.r, c: h.c });
+        if (!(h.r >= R.r1 && h.r <= R.r2 && h.c >= R.c1 && h.c <= R.c2)) selectCell(h.r, h.c, false);
       }
       return;
     }
     if (e.button !== 0) return;
     const sc = scrollerRef.current!;
-    // ignore clicks on scrollbars
-    if (e.clientX > sc.getBoundingClientRect().left + sc.clientWidth || e.clientY > sc.getBoundingClientRect().top + sc.clientHeight) return;
+    const box = sc.getBoundingClientRect();
+    if (e.clientX > box.left + sc.clientWidth || e.clientY > box.top + sc.clientHeight) return; // scrollbar
+    setFilterMenu(null);
+    setDvMenu(null);
+    useStore.getState().set({ selectedChart: null });
     const { x, y } = localXY(e);
     const h = hit(x, y);
     const s = useStore.getState();
-    // formula reference insertion
     if (s.editing && h.type === 'cell') {
       const txt = s.editing.text;
       if (txt.startsWith('=') && /[=+\-*/^&(,<>;:]$/.test(txt)) {
@@ -626,11 +340,23 @@ export function GridCanvas() {
     }
     if (s.editing) A.commitEdit('none');
     A.resetTabOrigin();
+    if (h.type === 'filterBtn') {
+      e.preventDefault();
+      const rc = cellRect(h.r, h.c);
+      setFilterMenu({ col: h.c, x: (rc.x + rc.w) * zoomRef.current, y: (rc.y + rc.h) * zoomRef.current });
+      return;
+    }
+    if (h.type === 'dvBtn') {
+      e.preventDefault();
+      const dv = sheet.validations.find((v) => v.kind === 'list' && h.r >= v.range.r1 && h.r <= v.range.r2 && h.c >= v.range.c1 && h.c <= v.range.c2)!;
+      const rc = cellRect(h.r, h.c);
+      setDvMenu({ r: h.r, c: h.c, items: wb.listItems(sheet, dv), x: rc.x * zoomRef.current, y: (rc.y + rc.h) * zoomRef.current });
+      return;
+    }
     sc.setPointerCapture(e.pointerId);
     e.preventDefault();
     if (h.type === 'cell') {
-      if (e.shiftKey) s.select(s.anchor, { r: h.r, c: h.c });
-      else s.select({ r: h.r, c: h.c });
+      selectCell(h.r, h.c, e.shiftKey);
       dragRef.current = { kind: 'select' };
     } else if (h.type === 'colHeader') {
       const nr = 1048575;
@@ -663,40 +389,47 @@ export function GridCanvas() {
     const s = useStore.getState();
     if (!d) {
       const h = hit(x, y);
-      const cur = h.type === 'colEdge' ? 'col-resize' : h.type === 'rowEdge' ? 'row-resize' : h.type === 'handle' ? 'crosshair' : h.type === 'cell' ? 'cell' : 'default';
+      const cur = h.type === 'colEdge' ? 'col-resize' : h.type === 'rowEdge' ? 'row-resize' : h.type === 'handle' ? 'crosshair' : h.type === 'filterBtn' || h.type === 'dvBtn' ? 'pointer' : h.type === 'cell' ? 'cell' : 'default';
       if (cur !== hoverRef.current) {
         hoverRef.current = cur;
         scrollerRef.current!.style.cursor = cur;
       }
+      // comment tooltip
+      if (h.type === 'cell' && sheet.comments.size) {
+        const m = wb.mergeAt(sheet, h.r, h.c);
+        const key = keyOf(m?.r1 ?? h.r, m?.c1 ?? h.c);
+        const text = sheet.comments.get(key);
+        if (text) {
+          if (tip?.key !== key) {
+            const rc = logicalRect(h.r, h.c);
+            setTip({ text, key, x: (rc.x + rc.w + 4) * zoomRef.current, y: rc.y * zoomRef.current });
+          }
+        } else if (tip) setTip(null);
+      } else if (tip) setTip(null);
       return;
     }
     if (d.kind === 'select') {
       const g = geom();
-      const cx = Math.max(HEADER_W + 1, Math.min(x, g.sc.clientWidth - 1));
-      const cy = Math.max(HEADER_H + 1, Math.min(y, g.sc.clientHeight - 1));
+      const cx = Math.max(HEADER_W + 1, Math.min(x, g.vw - 1));
+      const cy = Math.max(HEADER_H + 1, Math.min(y, g.vh - 1));
       const r = rowAtY(cy);
       const c = colAtX(cx);
       if (r !== s.active.r || c !== s.active.c) s.select(s.anchor, { r, c });
-      // edge autoscroll
       const sc = g.sc;
-      if (x > sc.clientWidth - 20) sc.scrollLeft += 20;
+      if (x > g.vw - 20) sc.scrollLeft += 20;
       else if (x < HEADER_W + 20) sc.scrollLeft -= 20;
-      if (y > sc.clientHeight - 20) sc.scrollTop += 20;
+      if (y > g.vh - 20) sc.scrollTop += 20;
       else if (y < HEADER_H + 20) sc.scrollTop -= 20;
     } else if (d.kind === 'cols') {
-      const c = colAtX(Math.max(HEADER_W + 1, x));
-      s.select({ r: 0, c: d.from }, { r: 1048575, c });
+      s.select({ r: 0, c: d.from }, { r: 1048575, c: colAtX(Math.max(HEADER_W + 1, x)) });
     } else if (d.kind === 'rows') {
-      const r = rowAtY(Math.max(HEADER_H + 1, y));
-      s.select({ r: d.from, c: 0 }, { r, c: 16383 });
+      s.select({ r: d.from, c: 0 }, { r: rowAtY(Math.max(HEADER_H + 1, y)), c: 16383 });
     } else if (d.kind === 'colResize') {
-      const nw = Math.max(24, d.startW + (x - d.startX));
-      sheet.colW.set(d.col, nw); // live feedback; committed (with undo) on release
+      sheet.colW.set(d.col, Math.max(24, d.startW + (x - d.startX)));
       setGrow((p) => ({ ...p }));
       requestDraw();
     } else if (d.kind === 'rowResize') {
-      const nh = Math.max(14, d.startH + (y - d.startY));
-      sheet.rowH.set(d.row, nh);
+      sheet.rowH.set(d.row, Math.max(14, d.startH + (y - d.startY)));
       setGrow((p) => ({ ...p }));
       requestDraw();
     } else if (d.kind === 'fill') {
@@ -724,9 +457,11 @@ export function GridCanvas() {
     if (!d) return;
     if (d.kind === 'colResize') {
       const w = sheet.colW.get(d.col) ?? d.startW;
-      sheet.colW.set(d.col, d.startW); // restore, then commit through the model for undo
-      if (w !== d.startW) wb.setColWidth(sheet, d.col, w);
-      else if (d.startW === DEF_COL_W) sheet.colW.delete(d.col);
+      sheet.colW.set(d.col, d.startW);
+      if (w !== d.startW) {
+        wb.setColWidth(sheet, d.col, w);
+        A.markManualWidth(sheet.id, d.col);
+      } else if (d.startW === DEF_COL_W) sheet.colW.delete(d.col);
     } else if (d.kind === 'rowResize') {
       const h = sheet.rowH.get(d.row) ?? d.startH;
       sheet.rowH.set(d.row, d.startH);
@@ -746,27 +481,11 @@ export function GridCanvas() {
   const onDoubleClick = (e: React.MouseEvent) => {
     const { x, y } = localXY(e);
     const h = hit(x, y);
-    if (h.type === 'cell') {
-      A.startEdit('cell');
-    } else if (h.type === 'colEdge') {
-      autoFit(h.c);
-    }
-  };
-
-  const autoFit = (c: number) => {
-    const canvas = canvasRef.current!;
-    const ctx = canvas.getContext('2d')!;
-    let max = 40;
-    let n = 0;
-    for (const [k, cell] of sheet.cells) {
-      if (k % 65536 !== c) continue;
-      if (++n > 1000) break;
-      const r = Math.floor(k / 65536);
-      const text = displayValue(wb.value(sheet, r, c), cell.style);
-      ctx.font = `${cell.style?.i ? 'italic ' : ''}${cell.style?.b ? 600 : 400} ${FONT_SIZE}px ${FONT_FAMILY}`;
-      max = Math.max(max, ctx.measureText(text).width + 18);
-    }
-    wb.setColWidth(sheet, c, Math.min(500, max));
+    if (h.type === 'cell') A.startEdit('cell');
+    else if (h.type === 'colEdge') {
+      A.autoFitCols([h.c]);
+      A.markManualWidth(sheet.id, h.c);
+    } else if (h.type === 'rowEdge') A.autoFitRowsNow();
   };
 
   // ---------- keyboard ----------
@@ -791,6 +510,20 @@ export function GridCanvas() {
       } else if (key === 'Escape') {
         e.preventDefault();
         A.cancelEdit();
+      } else if (key === 'F4') {
+        e.preventDefault();
+        const ta = e.currentTarget;
+        const text = s.editing.text;
+        const pos = ta.selectionStart;
+        const m = [...text.matchAll(/\$?[A-Za-z]{1,3}\$?\d+/g)].find((x) => x.index! <= pos && pos <= x.index! + x[0].length);
+        if (m) {
+          const body = m[0].replace(/\$/g, '');
+          const mm = /^([A-Za-z]+)(\d+)$/.exec(body)!;
+          const hasC = m[0].startsWith('$');
+          const hasR = /\$\d+$/.test(m[0]);
+          const next = !hasC && !hasR ? `$${mm[1]}$${mm[2]}` : hasC && hasR ? `${mm[1]}$${mm[2]}` : !hasC && hasR ? `$${mm[1]}${mm[2]}` : `${mm[1]}${mm[2]}`;
+          s.set({ editing: { ...s.editing, text: text.slice(0, m.index!) + next + text.slice(m.index! + m[0].length) } });
+        }
       }
       return;
     }
@@ -807,17 +540,13 @@ export function GridCanvas() {
         const step = () => {
           const nr = r + dr;
           const nc = c + dc;
-          if (nr < 0 || nc < 0 || nr > Math.max(maxR, 1048575) || nc > 16383) return false;
+          if (nr < 0 || nc < 0 || nr > 1048575 || nc > 16383) return false;
           r = nr;
           c = nc;
           return true;
         };
         const startFilled = filled(r, c);
-        const nextFilled = (() => {
-          const nr = r + dr;
-          const nc = c + dc;
-          return filled(nr, nc);
-        })();
+        const nextFilled = filled(r + dr, c + dc);
         if (startFilled && nextFilled) {
           while (step() && filled(r + dr, c + dc)) {
             /* walk to end of block */
@@ -844,12 +573,41 @@ export function GridCanvas() {
       case 'Home':
         e.preventDefault();
         return s.select(ctrl ? { r: 0, c: 0 } : extend ? s.anchor : { r: s.active.r, c: 0 }, ctrl ? { r: 0, c: 0 } : { r: s.active.r, c: 0 });
+      case 'End':
+        if (ctrl) {
+          e.preventDefault();
+          const ub = wb.usedBounds(sheet);
+          return s.select({ r: Math.max(0, ub.r), c: Math.max(0, ub.c) });
+        }
+        return;
       case 'Tab': e.preventDefault(); return A.pressTab(e.shiftKey);
       case 'Enter': e.preventDefault(); return A.pressEnter(e.shiftKey);
       case 'F2': e.preventDefault(); return A.startEdit('cell');
       case 'Delete':
-      case 'Backspace': e.preventDefault(); return A.clearSelection();
-      case 'Escape': if (s.clip) s.set({ clip: null }); return;
+      case 'Backspace':
+        e.preventDefault();
+        if (s.selectedChart) { wb.removeChart(sheet, s.selectedChart); s.set({ selectedChart: null }); return; }
+        return A.clearSelection();
+      case 'Escape': if (s.clip) s.set({ clip: null }); if (s.find) s.set({ find: null }); return;
+      case ' ':
+        if (ctrl) { e.preventDefault(); return s.select({ r: 0, c: s.active.c }, { r: 1048575, c: s.active.c }); }
+        if (e.shiftKey) { e.preventDefault(); return s.select({ r: s.active.r, c: 0 }, { r: s.active.r, c: 16383 }); }
+        return;
+      case '=':
+        if (e.altKey) { e.preventDefault(); return A.autoSum(); }
+        return;
+      case '+':
+        if (ctrl) { e.preventDefault(); return A.insertRowAbove(); }
+        return;
+      case '-':
+        if (ctrl) { e.preventDefault(); return A.deleteSelectedRows(); }
+        return;
+      case ';':
+        if (ctrl) { e.preventDefault(); return A.insertToday(e.shiftKey); }
+        return;
+      case ':':
+        if (ctrl) { e.preventDefault(); return A.insertToday(true); }
+        return;
     }
     if (ctrl) {
       const k = key.toLowerCase();
@@ -860,10 +618,12 @@ export function GridCanvas() {
       if (k === 'u') { e.preventDefault(); return A.toggleStyle('u'); }
       if (k === 'd') { e.preventDefault(); return A.fillDown(); }
       if (k === 'r') { e.preventDefault(); return A.fillRight(); }
-      if (k === 'a') { e.preventDefault(); return s.select({ r: 0, c: 0 }, { r: 1048575, c: 16383 }); }
-      if (k === 'c' || k === 'x' || k === 'v') return; // handled by clipboard events
+      if (k === 'a') { e.preventDefault(); return A.selectCurrentRegionOrAll(); }
+      if (k === 'l' && e.shiftKey) { e.preventDefault(); return A.toggleFilter(); }
+      if (k === '0') { e.preventDefault(); return s.set({ zoom: 1 }); }
       return;
     }
+    // F-keys / typing-less shortcuts handled elsewhere
   };
 
   const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -872,7 +632,6 @@ export function GridCanvas() {
     else if (e.target.value) A.startEdit('cell', e.target.value);
   };
 
-  // keep editor focused
   useEffect(() => {
     focusFn = () => taRef.current?.focus({ preventScroll: true });
     focusFn();
@@ -887,47 +646,57 @@ export function GridCanvas() {
     }
   }, [editing]);
 
-  // editor placement
+  // editor placement (sheet px → screen px via zoom)
   let edStyle: React.CSSProperties = { left: 0, top: 0, width: 1, height: 1, opacity: 0 };
   if (editing && editing.sheetId === sheet.id && editing.from === 'cell') {
-    const rc = cellScreenRect(editing.r, editing.c);
+    const rc = logicalRect(editing.r, editing.c);
     const lines = editing.text.split('\n');
     const longest = lines.reduce((a, b) => (b.length > a.length ? b : a), '');
     const tw = Math.min(520, Math.max(rc.w, longest.length * 8 + 28));
-    edStyle = {
-      left: rc.x,
-      top: rc.y,
-      width: tw,
-      height: Math.max(rc.h, lines.length * 18 + 8),
-      opacity: 1,
-      font: `${FONT_SIZE}px ${FONT_FAMILY}`,
-    };
+    edStyle = { left: rc.x * zoom, top: rc.y * zoom, width: tw * zoom, height: Math.max(rc.h, lines.length * 18 + 8) * zoom, opacity: 1, font: `${FONT_SIZE * zoom}px ${FONT_FAMILY}` };
   } else {
-    const rc = cellScreenRect(active.r, active.c);
-    edStyle = { left: Math.max(0, rc.x), top: Math.max(0, rc.y), width: 1, height: 1, opacity: 0 };
+    const rc = cellRect(active.r, active.c);
+    edStyle = { left: Math.max(0, rc.x * zoom), top: Math.max(0, rc.y * zoom), width: 1, height: 1, opacity: 0 };
   }
 
   const menuItems = (): MenuItem[] => {
     const R = selectionRange();
     const rows = R.r2 - R.r1 + 1;
     const cols = R.c2 - R.c1 + 1;
-    const whole = R.c1 === 0 && R.c2 === 16383;
+    const wholeRow = R.c1 === 0 && R.c2 === 16383;
     const wholeCol = R.r1 === 0 && R.r2 === 1048575;
+    const multi = R.r1 !== R.r2 || R.c1 !== R.c2;
+    const key = keyOf(R.r1, R.c1);
+    const hasComment = sheet.comments.has(key);
+    const err = typeof wb.value(sheet, R.r1, R.c1) === 'object' && wb.value(sheet, R.r1, R.c1) !== null;
     return [
       { label: t('menu.cut'), hint: 'Ctrl+X', run: () => A.copySelection(true) },
       { label: t('menu.copy'), hint: 'Ctrl+C', run: () => A.copySelection(false) },
-      { label: t('menu.paste'), hint: 'Ctrl+V', run: async () => { try { const tx = await navigator.clipboard.readText(); A.pasteText(tx); } catch { useStore.getState().showToast(t('menu.pasteHint')); } } },
+      { label: t('menu.paste'), hint: 'Ctrl+V', run: async () => { try { A.pasteText(await navigator.clipboard.readText()); } catch { useStore.getState().showToast(t('menu.pasteHint')); } } },
+      { label: t('menu.pasteValues'), run: async () => { try { A.pasteText(await navigator.clipboard.readText(), true); } catch { useStore.getState().showToast(t('menu.pasteHint')); } } },
       { sep: true },
-      { label: whole || !wholeCol ? t('menu.insertRows', { n: rows }) : t('menu.insertCols', { n: cols }), run: whole || !wholeCol ? A.insertRowAbove : A.insertColLeft },
+      { label: wholeCol ? t('menu.insertCols', { n: cols }) : t('menu.insertRows', { n: rows }), run: wholeCol ? A.insertColLeft : A.insertRowAbove },
       { label: t('menu.insertCols', { n: cols }), run: A.insertColLeft, hidden: wholeCol },
-      { label: t('menu.deleteRows', { n: rows }), run: A.deleteSelectedRows, hidden: wholeCol },
-      { label: t('menu.deleteCols', { n: cols }), run: A.deleteSelectedCols },
+      { label: wholeCol ? t('menu.deleteCols', { n: cols }) : t('menu.deleteRows', { n: rows }), run: wholeCol ? A.deleteSelectedCols : A.deleteSelectedRows },
+      { label: t('menu.deleteCols', { n: cols }), run: A.deleteSelectedCols, hidden: wholeCol },
       { sep: true },
       { label: t('menu.clear'), hint: 'Del', run: A.clearSelection },
+      { label: multi ? t('menu.merge') : t('menu.unmerge'), run: A.mergeSelection, hidden: !multi && !wb.mergeAt(sheet, R.r1, R.c1) },
+      { label: wholeCol ? t('menu.hideCols') : t('menu.hideRows'), run: () => A.hideSelected(wholeCol ? 'col' : 'row', true) },
+      { label: t('menu.unhide'), run: () => { A.hideSelected('row', false); A.hideSelected('col', false); } },
+      { label: t('menu.autofit'), run: A.autoFitSelection, hidden: wholeRow && !wholeCol },
       { sep: true },
+      { label: hasComment ? t('menu.editComment') : t('menu.addComment'), run: () => A.openDialog({ kind: 'comment', r: R.r1, c: R.c1 }) },
+      { label: t('menu.chart'), run: () => A.createChartFromSelection() },
+      { sep: true },
+      { label: t('menu.formulaAi'), run: () => A.openDialog({ kind: 'formula', mode: 'create' }), accent: true },
+      { label: err ? t('menu.fixAi') : t('menu.explainAi'), run: () => A.openDialog({ kind: 'formula', mode: err ? 'fix' : 'explain' }), accent: true },
       { label: t('menu.askAi'), run: () => useStore.getState().set({ panel: 'ai' }), accent: true },
     ];
   };
+
+  const spacerW = (HEADER_W + dims.cols.off[dims.nCols]) * zoom;
+  const spacerH = (HEADER_H + dims.rows.off[dims.nRows]) * zoom;
 
   return (
     <div className="grid-wrap" ref={wrapRef}>
@@ -941,8 +710,8 @@ export function GridCanvas() {
         onDoubleClick={onDoubleClick}
         onContextMenu={(e) => {
           e.preventDefault();
-          const { x, y } = localXY(e);
-          setMenu({ x: x + 8, y: y + 8 });
+          const box = scrollerRef.current!.getBoundingClientRect();
+          setMenu({ x: e.clientX - box.left + 8, y: e.clientY - box.top + 8 });
         }}
       >
         <div className="grid-sticky">
@@ -968,34 +737,30 @@ export function GridCanvas() {
             autoCorrect="off"
             aria-label="cell input"
           />
+          {sheet.charts.length > 0 && (
+            <div style={{ position: 'absolute', left: HEADER_W * zoom, top: HEADER_H * zoom, width: Math.max(0, sp.w - HEADER_W * zoom), height: Math.max(0, sp.h - HEADER_H * zoom), overflow: 'hidden', pointerEvents: 'none', zIndex: 2 }}>
+              <div style={{ position: 'absolute', left: 0, top: 0, transform: `translate(${-sp.x}px, ${-sp.y}px) scale(${zoom})`, transformOrigin: '0 0', pointerEvents: 'auto' }}>
+                {sheet.charts.map((ch) => (
+                  <ChartView key={ch.id} def={ch} sheet={sheet} zoom={zoom} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-        <div style={{ width: HEADER_W + dims.cols.off[dims.nCols], height: HEADER_H + dims.rows.off[dims.nRows] }} />
+        <div style={{ width: spacerW, height: spacerH, position: 'relative' }} />
       </div>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems()} onClose={() => { setMenu(null); focusGrid(); }} />}
+      {filterMenu && sheet.filter && <FilterMenu sheet={sheet} col={filterMenu.col} x={filterMenu.x} y={filterMenu.y} onClose={() => { setFilterMenu(null); focusGrid(); }} />}
+      {dvMenu && (
+        <DvMenu
+          items={dvMenu.items}
+          x={dvMenu.x}
+          y={dvMenu.y}
+          onPick={(v) => { wb.setInput(sheet, dvMenu.r, dvMenu.c, v, `Edit ${addr(dvMenu.r, dvMenu.c)}`); setDvMenu(null); focusGrid(); }}
+          onClose={() => { setDvMenu(null); focusGrid(); }}
+        />
+      )}
+      {tip && !menu && <CommentTip text={tip.text} x={tip.x} y={tip.y} />}
     </div>
   );
-}
-
-/** Picks a readable text color for an arbitrary cell background (matters in dark mode). */
-function contrastText(bg: string, fallback: string): string {
-  const m = /^#([0-9a-f]{6})$/i.exec(bg);
-  if (!m) return fallback;
-  const n = parseInt(m[1], 16);
-  const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
-  return lum > 0.58 ? '#18181b' : '#f4f4f5';
-}
-
-function wrapLines(text: string, maxW: number, measure: (s: string) => number): string[] {
-  const out: string[] = [];
-  for (const para of text.split('\n')) {
-    let line = '';
-    for (const word of para.split(/(\s+)/)) {
-      if (measure(line + word) > maxW && line) {
-        out.push(line.trimEnd());
-        line = word.trimStart();
-      } else line += word;
-    }
-    out.push(line);
-  }
-  return out;
 }

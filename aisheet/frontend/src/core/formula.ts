@@ -10,6 +10,11 @@ export interface EvalCtx {
   /** returns 2D array; whole-row/col ranges clipped to used area by implementation */
   getRange(sheet: string, r1: number, c1: number, r2: number, c2: number): Scalar[][];
   hasSheet(sheet: string): boolean;
+  /** resolves a workbook-level named range */
+  name?(n: string): { sheet: string; r1: number; c1: number; r2: number; c2: number } | null;
+  /** position of the formula cell (0-based) for ROW()/COLUMN() */
+  r?: number;
+  c?: number;
 }
 
 type Node =
@@ -21,6 +26,7 @@ type Node =
   | { k: 'pct'; x: Node }
   | { k: 'bin'; op: string; l: Node; r: Node }
   | { k: 'fn'; name: string; args: Node[] }
+  | { k: 'name'; name: string }
   | { k: 'err'; e: FormulaError };
 
 // ---------- parser (precedence climbing) ----------
@@ -115,7 +121,7 @@ class Parser {
           }
           return { k: 'fn', name: t.v.toUpperCase(), args };
         }
-        return { k: 'err', e: new FormulaError('#NAME?') };
+        return { k: 'name', name: t.v };
       }
       default:
         throw new FormulaError('#ERROR!');
@@ -218,6 +224,12 @@ function evalNode(n: Node, ctx: EvalCtx): Val {
       return n.v;
     case 'err':
       return n.e;
+    case 'name': {
+      const m = ctx.name?.(n.name);
+      if (!m) return E('#NAME?');
+      if (m.r1 === m.r2 && m.c1 === m.c2) return ctx.getCell(m.sheet, m.r1, m.c1);
+      return ctx.getRange(m.sheet, m.r1, m.c1, m.r2, m.c2);
+    }
     case 'ref': {
       const sheet = n.sheet ?? ctx.sheet;
       if (!ctx.hasSheet(sheet)) return E('#REF!');
@@ -528,6 +540,41 @@ const FUNCS: Record<string, Fn> = Object.fromEntries([
   }],
   ['ROWS', (a) => range2(a[0]).length],
   ['COLUMNS', (a) => range2(a[0])[0]?.length ?? 0],
+  // ---- extended library ----
+  ['IFS', (a) => { for (let i = 0; i + 1 < a.length; i += 2) { const c = toBool(scalar(a[i])); if (c instanceof FormulaError) return c; if (c) return a[i + 1]; } return E('#N/A'); }],
+  ['SWITCH', (a) => { const key = scalar(a[0]); let i = 1; for (; i + 1 < a.length; i += 2) if (compare(scalar(a[i]), key) === 0) return a[i + 1]; return i < a.length ? a[i] : E('#N/A'); }],
+  ['CHOOSE', (a) => { const n = toNum(scalar(a[0])); if (n instanceof FormulaError) return n; return a[Math.floor(n)] ?? E('#VALUE!'); }],
+  ['AVERAGEIFS', (a) => { const avR = range2(a[0]); const conds: [Scalar[][], (v: Scalar) => boolean][] = []; for (let i = 1; i + 1 < a.length; i += 2) conds.push([range2(a[i]), criteriaMatcher(scalar(a[i + 1]))]); let s2 = 0, n = 0; for (let r = 0; r < avR.length; r++) for (let c = 0; c < avR[r].length; c++) if (conds.every(([rg, m]) => m(rg[r]?.[c] ?? null))) { const v = avR[r][c]; if (typeof v === 'number') { s2 += v; n++; } } return n ? s2 / n : E('#DIV/0!'); }],
+  ['MAXIFS', (a) => { const R = range2(a[0]); const conds: [Scalar[][], (v: Scalar) => boolean][] = []; for (let i = 1; i + 1 < a.length; i += 2) conds.push([range2(a[i]), criteriaMatcher(scalar(a[i + 1]))]); let best: number | null = null; for (let r = 0; r < R.length; r++) for (let c = 0; c < R[r].length; c++) if (conds.every(([rg, m]) => m(rg[r]?.[c] ?? null))) { const v = R[r][c]; if (typeof v === 'number' && (best === null || v > best)) best = v; } return best ?? 0; }],
+  ['MINIFS', (a) => { const R = range2(a[0]); const conds: [Scalar[][], (v: Scalar) => boolean][] = []; for (let i = 1; i + 1 < a.length; i += 2) conds.push([range2(a[i]), criteriaMatcher(scalar(a[i + 1]))]); let best: number | null = null; for (let r = 0; r < R.length; r++) for (let c = 0; c < R[r].length; c++) if (conds.every(([rg, m]) => m(rg[r]?.[c] ?? null))) { const v = R[r][c]; if (typeof v === 'number' && (best === null || v < best)) best = v; } return best ?? 0; }],
+  numFn('TRUNC', Math.trunc),
+  numFn('FACT', (x) => { if (x < 0) return E('#NUM!'); let r = 1; for (let i = 2; i <= Math.floor(x); i++) r *= i; return r; }),
+  ['RANK', (a) => { const x = toNum(scalar(a[0])); const n = nums([a[1]]); const asc = a[2] !== undefined && toNum(scalar(a[2])) !== 0; if (x instanceof FormulaError) return x; if (n instanceof FormulaError) return n; if (!n.includes(x)) return E('#N/A'); return 1 + n.filter((v) => (asc ? v < x : v > x)).length; }],
+  ['PERCENTILE', (a) => { const n = nums([a[0]]); const k = toNum(scalar(a[1])); if (n instanceof FormulaError) return n; if (k instanceof FormulaError) return k; if (!n.length || k < 0 || k > 1) return E('#NUM!'); n.sort((x, y) => x - y); const pos = k * (n.length - 1); const lo = Math.floor(pos); return n[lo] + (n[Math.min(lo + 1, n.length - 1)] - n[lo]) * (pos - lo); }],
+  ['VAR', (a) => { const n = nums(a); if (n instanceof FormulaError) return n; if (n.length < 2) return E('#DIV/0!'); const m = n.reduce((s2, x) => s2 + x, 0) / n.length; return n.reduce((s2, x) => s2 + (x - m) ** 2, 0) / (n.length - 1); }],
+  ['SUMSQ', (a) => { const n = nums(a); return n instanceof FormulaError ? n : n.reduce((s2, x) => s2 + x * x, 0); }],
+  ['ISEVEN', (a) => { const n = toNum(scalar(a[0])); return n instanceof FormulaError ? n : Math.floor(n) % 2 === 0; }],
+  ['ISODD', (a) => { const n = toNum(scalar(a[0])); return n instanceof FormulaError ? n : Math.floor(n) % 2 !== 0; }],
+  ['NA', () => E('#N/A')],
+  ['EXACT', (a) => toStr(scalar(a[0])) === toStr(scalar(a[1]))],
+  ['CLEAN', (a) => toStr(scalar(a[0])).replace(/[\u0000-\u001f]/g, '')],
+  ['REPLACE', (a) => { const s2 = [...toStr(scalar(a[0]))]; const st = toNum(scalar(a[1])), n = toNum(scalar(a[2])); if (st instanceof FormulaError) return st; if (n instanceof FormulaError) return n; return s2.slice(0, st - 1).join('') + toStr(scalar(a[3])) + s2.slice(st - 1 + n).join(''); }],
+  ['CHAR', (a) => { const n = toNum(scalar(a[0])); return n instanceof FormulaError ? n : String.fromCharCode(n); }],
+  ['CODE', (a) => toStr(scalar(a[0])).charCodeAt(0) || E('#VALUE!')],
+  ['DAYS', (a) => { const x = toNum(scalar(a[0])), y = toNum(scalar(a[1])); if (x instanceof FormulaError) return x; if (y instanceof FormulaError) return y; return x - y; }],
+  ['EDATE', (a) => { const n = toNum(scalar(a[0])), m = toNum(scalar(a[1])); if (n instanceof FormulaError) return n; if (m instanceof FormulaError) return m; const d = excelDateToJS(n); return Math.floor(jsToExcelDate(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + m, d.getUTCDate())))); }],
+  ['EOMONTH', (a) => { const n = toNum(scalar(a[0])), m = toNum(scalar(a[1])); if (n instanceof FormulaError) return n; if (m instanceof FormulaError) return m; const d = excelDateToJS(n); return Math.floor(jsToExcelDate(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + m + 1, 0)))); }],
+  ['WEEKDAY', (a) => { const n = toNum(scalar(a[0])); if (n instanceof FormulaError) return n; const t = a[1] === undefined ? 1 : (toNum(scalar(a[1])) as number); const d = excelDateToJS(n).getUTCDay(); return t === 2 ? (d + 6) % 7 + 1 : t === 3 ? (d + 6) % 7 : d + 1; }],
+  ['DATEDIF', (a) => { const x = toNum(scalar(a[0])), y = toNum(scalar(a[1])); if (x instanceof FormulaError) return x; if (y instanceof FormulaError) return y; const u = toStr(scalar(a[2])).toUpperCase(); const d1 = excelDateToJS(x), d2 = excelDateToJS(y); if (y < x) return E('#NUM!'); const months = (d2.getUTCFullYear() - d1.getUTCFullYear()) * 12 + d2.getUTCMonth() - d1.getUTCMonth() - (d2.getUTCDate() < d1.getUTCDate() ? 1 : 0); return u === 'D' ? Math.floor(y - x) : u === 'M' ? months : u === 'Y' ? Math.floor(months / 12) : E('#VALUE!'); }],
+  ['NETWORKDAYS', (a) => { const x = toNum(scalar(a[0])), y = toNum(scalar(a[1])); if (x instanceof FormulaError) return x; if (y instanceof FormulaError) return y; let c = 0; for (let d = Math.min(x, y); d <= Math.max(x, y); d++) { const w = excelDateToJS(d).getUTCDay(); if (w !== 0 && w !== 6) c++; } return x <= y ? c : -c; }],
+  ['PMT', (a) => { const r = toNum(scalar(a[0])), n = toNum(scalar(a[1])), pv = toNum(scalar(a[2])); if (r instanceof FormulaError) return r; if (n instanceof FormulaError) return n; if (pv instanceof FormulaError) return pv; const fv = a[3] === undefined ? 0 : (toNum(scalar(a[3])) as number); const t = a[4] === undefined ? 0 : (toNum(scalar(a[4])) as number); if (r === 0) return -(pv + fv) / n; const f = Math.pow(1 + r, n); return -(r * (pv * f + fv)) / ((1 + r * t) * (f - 1)); }],
+  ['FV', (a) => { const r = toNum(scalar(a[0])), n = toNum(scalar(a[1])), pmt = toNum(scalar(a[2])); if (r instanceof FormulaError) return r; if (n instanceof FormulaError) return n; if (pmt instanceof FormulaError) return pmt; const pv = a[3] === undefined ? 0 : (toNum(scalar(a[3])) as number); const t = a[4] === undefined ? 0 : (toNum(scalar(a[4])) as number); if (r === 0) return -(pv + pmt * n); const f = Math.pow(1 + r, n); return -(pv * f + pmt * (1 + r * t) * (f - 1) / r); }],
+  ['PV', (a) => { const r = toNum(scalar(a[0])), n = toNum(scalar(a[1])), pmt = toNum(scalar(a[2])); if (r instanceof FormulaError) return r; if (n instanceof FormulaError) return n; if (pmt instanceof FormulaError) return pmt; const fv = a[3] === undefined ? 0 : (toNum(scalar(a[3])) as number); const t = a[4] === undefined ? 0 : (toNum(scalar(a[4])) as number); if (r === 0) return -(fv + pmt * n); const f = Math.pow(1 + r, n); return -(fv + pmt * (1 + r * t) * (f - 1) / r) / f; }],
+  ['NPV', (a) => { const r = toNum(scalar(a[0])); if (r instanceof FormulaError) return r; const cf = nums(a.slice(1)); if (cf instanceof FormulaError) return cf; return cf.reduce((s2, v, i) => s2 + v / Math.pow(1 + r, i + 1), 0); }],
+  ['IRR', (a) => { const cf = nums([a[0]]); if (cf instanceof FormulaError) return cf; let r = 0.1; for (let i = 0; i < 100; i++) { let f = 0, d = 0; cf.forEach((v, t2) => { f += v / Math.pow(1 + r, t2); d -= (t2 * v) / Math.pow(1 + r, t2 + 1); }); if (d === 0) break; const nr = r - f / d; if (Math.abs(nr - r) < 1e-9) return nr; r = nr; } return E('#NUM!'); }],
+  ['LOOKUP', (a) => { const key = scalar(a[0]); const look = flat([a[1]]); const res = a[2] !== undefined ? flat([a[2]]) : look; let best = -1; for (let i = 0; i < look.length; i++) { if (compare(look[i], key) <= 0) best = i; else break; } return best < 0 ? E('#N/A') : res[best] ?? E('#N/A'); }],
+  ['ROW', (a, ctx) => (a[0] !== undefined ? 1 : (ctx.r ?? 0) + 1)],
+  ['COLUMN', (a, ctx) => (a[0] !== undefined ? 1 : (ctx.c ?? 0) + 1)],
 ] as [string, Fn][]);
 
 function callFn(n: Extract<Node, { k: 'fn' }>, ctx: EvalCtx): Val {

@@ -18,11 +18,35 @@ export function useWbVersion(): number {
   );
 }
 
+export interface AgentTask {
+  id: string;
+  title: string;
+  instruction: string;
+  depends: string[];
+  status: 'queued' | 'running' | 'done' | 'error' | 'skipped';
+  text: string;
+  steps: string[];
+  actions: number;
+  error?: string;
+  startedAt?: number;
+  endedAt?: number;
+}
+export interface AgentRun {
+  goal: string;
+  tasks: AgentTask[];
+  status: 'pending' | 'running' | 'merging' | 'done' | 'cancelled' | 'error';
+  prompt: string;
+}
+
 export interface ChatMsg {
   id: number;
   role: 'user' | 'ai' | 'sys';
   text: string;
   streaming?: boolean;
+  /** tool calls the assistant made while answering ("Read Sales!A100:F160") */
+  steps?: string[];
+  /** sub-agent plan attached to this message */
+  agent?: AgentRun;
   proposalId?: number;
   result?: { applied: number; denied: number; errors: string[]; txId?: number };
   error?: boolean;
@@ -64,6 +88,19 @@ export interface VoiceSettings {
   polish: boolean;
 }
 
+export type DialogState =
+  | { kind: 'find'; replace?: boolean }
+  | { kind: 'chart'; id?: string }
+  | { kind: 'cf' }
+  | { kind: 'dv' }
+  | { kind: 'pivot' }
+  | { kind: 'page' }
+  | { kind: 'comment'; r: number; c: number }
+  | { kind: 'names' }
+  | { kind: 'formula'; mode?: 'create' | 'explain' | 'fix'; seed?: string; autoVoice?: boolean }
+  | { kind: 'textcols' }
+  | { kind: 'dedupe' };
+
 export type Theme = 'system' | 'light' | 'dark';
 export type Panel = 'ai' | 'history' | null;
 
@@ -79,6 +116,8 @@ interface Persisted {
   voice: VoiceSettings;
   /** OpenRouter: only route to providers that neither store nor train on prompts. */
   strictPrivacy: boolean;
+  /** allow the assistant to split big jobs across parallel sub-agents */
+  multiAgent: boolean;
 }
 
 const SETTINGS_KEY = 'aisheet:settings:v1';
@@ -95,6 +134,7 @@ function loadPersisted(): Persisted {
     panel: 'ai',
     voice: { lang: 'en', polish: true },
     strictPrivacy: true,
+    multiAgent: true,
   };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
@@ -122,8 +162,14 @@ export interface AppState extends Persisted {
   msgs: ChatMsg[];
   busy: boolean;
   proposal: Proposal | null;
-  findOpen: boolean;
   draft: string;
+  zoom: number;
+  ribbonTab: 'home' | 'insert' | 'data' | 'view' | 'ai';
+  dialog: DialogState | null;
+  selectedChart: string | null;
+  /** auto-fit columns after AI edits / paste / file open */
+  autoFit: boolean;
+  find: { query: string; keys: number[]; idx: number; sheetId: string } | null;
 
   set: (p: Partial<AppState>) => void;
   select: (anchor: { r: number; c: number }, active?: { r: number; c: number }) => void;
@@ -147,17 +193,22 @@ export const useStore = create<AppState>((set, get) => ({
   msgs: [],
   busy: false,
   proposal: null,
-  findOpen: false,
   draft: '',
+  zoom: 1,
+  ribbonTab: 'home',
+  dialog: null,
+  selectedChart: null,
+  autoFit: true,
+  find: null,
 
   set: (p) => {
     set(p);
-    if ('theme' in p || 'lang' in p || 'aiLang' in p || 'providerId' in p || 'models' in p || 'baseUrls' in p || 'permissions' in p || 'panel' in p || 'voice' in p || 'strictPrivacy' in p) get().persist();
+    if ('theme' in p || 'lang' in p || 'aiLang' in p || 'providerId' in p || 'models' in p || 'baseUrls' in p || 'permissions' in p || 'panel' in p || 'voice' in p || 'strictPrivacy' in p || 'multiAgent' in p) get().persist();
   },
   select: (anchor, active) => set({ anchor, active: active ?? anchor }),
   persist: () => {
     const s = get();
-    const p: Persisted = { theme: s.theme, lang: s.lang, aiLang: s.aiLang, providerId: s.providerId, models: s.models, baseUrls: s.baseUrls, permissions: s.permissions, panel: s.panel, voice: s.voice, strictPrivacy: s.strictPrivacy };
+    const p: Persisted = { theme: s.theme, lang: s.lang, aiLang: s.aiLang, providerId: s.providerId, models: s.models, baseUrls: s.baseUrls, permissions: s.permissions, panel: s.panel, voice: s.voice, strictPrivacy: s.strictPrivacy, multiAgent: s.multiAgent };
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(p));
     } catch {
@@ -189,3 +240,6 @@ export function providerModel(id: ProviderId): string {
   const s = useStore.getState();
   return s.models[id] ?? PROVIDERS.find((p) => p.id === id)?.defaultModel ?? '';
 }
+
+// handle for automated UI tests
+if (typeof window !== 'undefined') (window as unknown as { __aisheet: unknown }).__aisheet = { wb, useStore };

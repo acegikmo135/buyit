@@ -118,3 +118,11 @@ input, textarea { user-select: text; }
 .composer-ta, .composer-ta:focus, .composer-ta:focus-visible, .composer-ta:hover {
   box-shadow: none !important; background: transparent !important; border-color: transparent !important; outline: none !important;
 }
+
+/* print / PDF export */
+#print-root { display: none; }
+@media print {
+  body { overflow: visible !important; background: #fff !important; user-select: auto; }
+  body > #root { display: none !important; }
+  #print-root { display: block !important; }
+}
