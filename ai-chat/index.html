@@ -225,6 +225,8 @@ pre.raw { margin: 8px 0 0; font: 11px/1.4 var(--mono); color: var(--muted); whit
         </div>
         <div class="progress"><i id="progBar"></i></div>
         <div class="prog-text" id="progText"></div>
+        <div class="prog-text" id="dlStats" style="font-family:var(--mono)"></div>
+        <label class="hint" style="display:flex;gap:6px;align-items:center;cursor:pointer;margin-top:8px"><input type="checkbox" id="autoLoad" checked> Load automatically when I open the page</label>
         <div class="hint">Weights download once, then are cached by your browser for instant reloads. <a href="#" id="lnkDelCache" style="color:var(--muted)">Remove cached copy</a></div>
       </div>
 
@@ -328,7 +330,11 @@ pre.raw { margin: 8px 0 0; font: 11px/1.4 var(--mono); color: var(--muted); whit
    Everything runs client side. No server, no API key, no install.
    ===================================================================== */
 const WEBLLM_VERSION = "0.2.79";
-const WEBLLM_URL = `https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@${WEBLLM_VERSION}/+esm`;
+// Raw, pre-built ESM file (no on-the-fly CDN bundling). Raced across CDNs, then cached locally for instant repeat visits.
+const LIB_URLS = [
+  `https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@${WEBLLM_VERSION}/lib/index.js`,
+  `https://unpkg.com/@mlc-ai/web-llm@${WEBLLM_VERSION}/lib/index.js`,
+];
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -578,11 +584,149 @@ async function probeGPU() {
   } catch { return null; }
 }
 
-async function loadLibrary() {
+/* ---------- fast, resumable downloading ----------
+   WebLLM downloads silently (no progress for the config / runtime / manifest, only 4 connections, and no fallback
+   if a host is slow). So we fetch everything ourselves first - in parallel, with live progress, resumable, with a
+   mirror fallback - and store it in the exact Cache API entries WebLLM reads. WebLLM then finds it all cached. */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function mirrorsFor(url) {
+  const out = [url];
+  if (url.startsWith("https://huggingface.co/")) out.push(url.replace("https://huggingface.co/", "https://hf-mirror.com/"));
+  const gh = "https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/";
+  if (url.startsWith(gh)) out.push(url.replace(gh, "https://cdn.jsdelivr.net/gh/mlc-ai/binary-mlc-llm-libs@main/"));
+  return out;
+}
+const hostOf = (u) => { try { return new URL(u).host; } catch { return u; } };
+
+// Start urls[0]; if it hasn't answered after `hedge` ms (or failed) start the next. First OK response wins.
+function raceFetch(urls, { hedge = 2500, signal } = {}) {
+  return new Promise((resolve, reject) => {
+    const ctrls = [], started = new Set(), timers = [];
+    let done = false, failed = 0, lastErr;
+    const finish = (win, err) => {
+      if (done) return; done = true; timers.forEach(clearTimeout);
+      ctrls.forEach((c, i) => { if (i !== win) c?.abort(); });
+      win == null ? reject(err) : resolve(winner);
+    };
+    let winner;
+    const start = (i) => {
+      if (done || started.has(i) || i >= urls.length) return; started.add(i);
+      const c = (ctrls[i] = new AbortController());
+      signal?.addEventListener("abort", () => c.abort(), { once: true });
+      fetch(urls[i], { signal: c.signal, mode: "cors", credentials: "omit" }).then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status} from ${hostOf(urls[i])}`);
+        winner = { res, url: urls[i], index: i }; finish(i);
+      }).catch((e) => {
+        if (done) return; lastErr = e; failed++;
+        if (failed >= urls.length) finish(null, lastErr); else start(i + 1);
+      });
+    };
+    urls.forEach((_, i) => timers.push(setTimeout(() => start(i), i * hedge)));
+  });
+}
+
+// Stream a response body into a Blob while reporting bytes as they arrive.
+async function readBlob(res, onBytes) {
+  const type = res.headers.get("content-type") || "application/octet-stream";
+  if (!res.body) { const b = await res.blob(); onBytes?.(b.size); return b; }
+  const reader = res.body.getReader(), parts = [];
+  for (;;) { const { done, value } = await reader.read(); if (done) break; parts.push(value); onBytes?.(value.byteLength); }
+  return new Blob(parts, { type });
+}
+
+async function getLibModuleUrl(onStage) {
+  if (S.libUrl) return S.libUrl;
+  const key = `https://lm.invalid/web-llm@${WEBLLM_VERSION}.js`;
+  let blob = null, cache = null;
+  try { cache = await caches.open("lm-lib"); const hit = await cache.match(key); if (hit) blob = await hit.blob(); } catch {}
+  if (!blob) {
+    onStage?.("Downloading AI engine (~2 MB, one time)…", 1);
+    const { res } = await raceFetch(LIB_URLS, { hedge: 2000 });
+    blob = await readBlob(res);
+    try { await cache?.put(key, new Response(blob, { headers: { "content-type": "text/javascript" } })); } catch {}
+  }
+  S.libUrl = URL.createObjectURL(new Blob([blob], { type: "text/javascript" }));
+  return S.libUrl;
+}
+
+async function loadLibrary(onStage) {
   if (S.webllm) return S.webllm;
-  setStatus("busy", "Loading AI engine…");
-  S.webllm = await import(WEBLLM_URL);
-  return S.webllm;
+  S.libPromise ||= (async () => {
+    const url = await getLibModuleUrl(onStage);
+    S.webllm = await import(url);
+    return S.webllm;
+  })().catch((e) => { S.libPromise = null; throw e; });
+  return S.libPromise;
+}
+
+const cleanModelUrl = (u) => { u += u.endsWith("/") ? "" : "/"; if (!/.+\/resolve\/.+\//.test(u)) u += "resolve/main/"; return new URL(u).href; };
+
+async function prefetchModel(rec, onProgress) {
+  const modelUrl = cleanModelUrl(rec.model);
+  const at = (f) => new URL(f, modelUrl).href;
+  const [cfgC, wasmC, modC] = await Promise.all(["webllm/config", "webllm/wasm", "webllm/model"].map((n) => caches.open(n)));
+  const put = (c, url, blob) => c.put(url, new Response(blob, { headers: { "content-type": blob.type || "application/octet-stream" } }));
+  let via = "";
+  const fetchInto = async (cache, url, { json = false, onBytes } = {}) => {
+    const hit = await cache.match(url);
+    if (hit) return json ? hit.json() : null;
+    // remember which mirror was fastest and try it first for the next files
+    const list = mirrorsFor(url);
+    if (S.mirrorFirst > 0 && list.length > 1) list.reverse();
+    const { res, url: from } = await raceFetch(list, { hedge: 2500 });
+    via = hostOf(from); if (from !== url && list.length > 1) S.mirrorFirst = 1; else S.mirrorFirst = 0;
+    const blob = await readBlob(res, onBytes);
+    await put(cache, url, blob);
+    return json ? JSON.parse(await blob.text()) : null;
+  };
+
+  onProgress({ stage: "Contacting model host…", pct: 1 });
+  let wasmBytes = 0;
+  const [config, manifest] = await Promise.all([
+    fetchInto(cfgC, at("mlc-chat-config.json"), { json: true }),
+    fetchInto(modC, at("ndarray-cache.json"), { json: true }),
+    fetchInto(wasmC, rec.model_lib, { onBytes: (n) => { wasmBytes += n; onProgress({ stage: `Downloading runtime… ${(wasmBytes / 2 ** 20).toFixed(1)} MB`, pct: 2, via }); } }),
+  ]).then(([c, m]) => [c, m]);
+  const tokFiles = (config.tokenizer_files || []).filter((f) => f === "tokenizer.json" || f === "tokenizer.model");
+  const tokFile = tokFiles.includes("tokenizer.json") ? "tokenizer.json" : tokFiles[0];
+  if (tokFile) await fetchInto(modC, at(tokFile));
+
+  // weights: parallel, resumable (shards already in the cache are skipped)
+  const shards = manifest.records.map((r) => ({ url: at(r.dataPath), size: r.nbytes }));
+  const total = shards.reduce((a, r) => a + r.size, 0);
+  let done = 0, last = 0;
+  const samples = [];
+  const tick = (force) => {
+    const now = performance.now();
+    if (!force && now - last < 150) return; last = now;
+    samples.push([now, done]); while (samples.length > 2 && now - samples[0][0] > 4000) samples.shift();
+    const dt = (now - samples[0][0]) / 1000, speed = dt > 0.4 ? (done - samples[0][1]) / dt : 0;
+    onProgress({ stage: "Downloading model weights", pct: 3 + (done / total) * 97, done, total, speed, eta: speed > 1 ? (total - done) / speed : NaN, via });
+  };
+  const queue = shards.slice();
+  const worker = async () => {
+    for (let sh; (sh = queue.shift()); ) {
+      if (await modC.match(sh.url)) { done += sh.size; tick(); continue; }
+      let ok = false, lastErr;
+      for (let attempt = 0; attempt < 4 && !ok; attempt++) {
+        let got = 0;
+        try {
+          const list = mirrorsFor(sh.url);
+          if (S.mirrorFirst > 0 && list.length > 1) list.reverse();
+          if (attempt % 2) list.reverse();
+          const { res, url: from } = await raceFetch(list, { hedge: 4000 });
+          via = hostOf(from);
+          const blob = await readBlob(res, (n) => { got += n; done += n; tick(); });
+          await put(modC, sh.url, blob); ok = true;
+        } catch (e) { lastErr = e; done -= got; await sleep(400 * (attempt + 1)); }
+      }
+      if (!ok) throw lastErr || new Error("Download failed");
+      tick();
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, shards.length) }, worker));
+  tick(true);
+  return { via };
 }
 
 async function refreshCacheFlags() {
@@ -600,7 +744,7 @@ async function refreshCacheFlags() {
 function makeEngine(webllm, progressCb) {
   // Prefer a module Web Worker so inference never blocks the UI thread.
   try {
-    const src = `import { WebWorkerMLCEngineHandler } from "${WEBLLM_URL}";
+    const src = `import { WebWorkerMLCEngineHandler } from "${S.libUrl}";
 const handler = new WebWorkerMLCEngineHandler();
 self.onmessage = (m) => handler.onmessage(m);`;
     const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
@@ -622,58 +766,91 @@ function showBanner(html, info) {
   b.innerHTML = html;
 }
 
-async function loadModel() {
+let stageTimer = null;
+function setStage(text, pct) {
+  const t0 = performance.now();
+  clearInterval(stageTimer);
+  const draw = () => { $("progText").textContent = `${text}${performance.now() - t0 > 4000 ? ` (${Math.round((performance.now() - t0) / 1000)}s)` : ""}`; };
+  draw(); stageTimer = setInterval(draw, 1000);
+  if (pct != null) $("progBar").style.width = pct + "%";
+}
+const stopStage = () => clearInterval(stageTimer);
+const fmtEta = (s) => !Number.isFinite(s) ? "" : s >= 90 ? `${Math.round(s / 60)} min left` : `${Math.max(1, Math.round(s))} s left`;
+
+async function loadModel({ auto = false } = {}) {
   if (S.loading || S.generating) return;
   S.loading = true;
-  $("btnLoad").disabled = true; $("modelSelect").disabled = true;
-  const bar = $("progBar"), txt = $("progText");
-  bar.style.width = "0%"; txt.textContent = "Starting…";
+  $("btnLoad").disabled = true; $("modelSelect").disabled = true; $("dlStats").textContent = "";
+  const bar = $("progBar");
+  setStage("Starting…", 0);
   try {
-    const gpu = await probeGPU();
+    const gpu = S.gpuInfo || (await probeGPU());
     if (!gpu) {
-      setStatus("err", "WebGPU not available");
+      stopStage(); setStatus("err", "WebGPU not available");
       showBanner(`<b>WebGPU isn't available in this browser.</b><br>Use a recent <b>Chrome, Edge or Brave (v113+)</b> on desktop or Android. Safari 26+ and Firefox 141+ (Windows) also work. If you're already on one, enable hardware acceleration in browser settings and check <code>chrome://gpu</code>.`);
-      txt.textContent = "WebGPU unavailable.";
+      $("progText").textContent = "WebGPU unavailable.";
       return;
     }
-    const webllm = await loadLibrary();
+    setStatus("busy", "Loading AI engine…");
+    const webllm = await loadLibrary((t, p) => setStage(t, p));
     const m = currentModel();
     const rec = recordFor(m.id);
     if (!rec) throw new Error("This model isn't available in the engine's catalogue.");
     if (rec.required_features?.includes("shader-f16") && !S.hasF16) throw new Error("This GPU lacks shader-f16 support; pick another model.");
 
+    // 1) download (parallel, resumable, with live progress + mirror fallback)
+    {
+      setStatus("busy", `Preparing ${m.label}…`);
+      const t0 = performance.now();
+      await prefetchModel(rec, (p) => {
+        bar.style.width = p.pct.toFixed(1) + "%";
+        if (p.total) {
+          setStatus("busy", `Downloading ${m.label} — ${Math.round(p.pct)}%`);
+          stopStage();
+          $("progText").textContent = `Fetching ${m.label} files (first time only)`;
+          $("dlStats").textContent = `↓ ${p.speed ? (p.speed / 2 ** 20).toFixed(1) : "…"} MB/s · ${(p.done / 2 ** 20).toFixed(0)} / ${(p.total / 2 ** 20).toFixed(0)} MB ${fmtEta(p.eta)}${p.via ? " · " + p.via : ""}`;
+        } else setStage(p.stage + (p.via ? ` · ${p.via}` : ""), p.pct);
+      });
+      const took = (performance.now() - t0) / 1000;
+      $("dlStats").textContent = took > 3 ? `Downloaded in ${took.toFixed(0)} s` : "";
+    }
+
+    // 2) load weights into GPU memory (everything is cached now, so this is fast)
     if (S.engine && S.loadedModelId) { try { await S.engine.unload(); } catch {} S.loadedModelId = null; }
     const onProgress = (r) => {
-      bar.style.width = Math.round((r.progress || 0) * 100) + "%";
-      txt.textContent = r.text || "";
-      setStatus("busy", `Loading ${m.label} — ${Math.round((r.progress || 0) * 100)}%`);
+      const pct = Math.round((r.progress || 0) * 100);
+      bar.style.width = pct + "%";
+      stopStage(); $("progText").textContent = `Loading into GPU memory… ${pct}%`;
+      setStatus("busy", `Loading ${m.label} into GPU — ${pct}%`);
     };
     if (!S.engine) S.engine = makeEngine(webllm, onProgress); else S.engine.setInitProgressCallback(onProgress);
-
     const chatOpts = {};
     const ctx = +$("ctxSelect").value;
     if (ctx) chatOpts.context_window_size = ctx;
-    setStatus("busy", `Loading ${m.label}…`);
-    const t0 = performance.now();
+    bar.style.width = "0%"; setStage("Preparing GPU…", 0);
+    setStatus("busy", `Loading ${m.label} into GPU…`);
+    const t1 = performance.now();
     await S.engine.reload(rec.model_id, chatOpts);
-    const secs = (performance.now() - t0) / 1000;
+    const secs = (performance.now() - t1) / 1000;
 
+    stopStage();
     S.loadedModelId = rec.model_id; S.loadedRecord = rec;
     S.ctxSize = ctx || rec.overrides?.context_window_size || 4096;
-    store.set("model", m.id);
+    store.set("model", m.id); store.set("lastLoaded", m.id);
     bar.style.width = "100%";
-    txt.textContent = `Ready in ${secs.toFixed(1)} s`;
+    $("progText").textContent = `Ready — loaded into GPU in ${secs.toFixed(1)} s`;
     setStatus("ready", `${m.label} · ${S.usingWorker ? "worker" : "main thread"} · WebGPU`);
     $("btnLoad").textContent = "Reload model";
     showBanner(`<b>${esc(m.label)} is ready.</b> Everything stays on your device — try one of the prompts below or type your own.`, true);
     updateContextMeter(); updateVram(); renderEngineInfo();
     refreshCacheFlags();
-    $("input").focus();
+    if (!auto) $("input").focus();
   } catch (e) {
     console.error(e);
+    stopStage();
     setStatus("err", "Failed to load model");
     $("progText").textContent = String(e?.message || e);
-    showBanner(`<b>Couldn't load the model.</b><br>${esc(String(e?.message || e))}<br><span style="color:var(--muted)">Check your connection (the first load downloads the weights), try a smaller model, or free GPU memory by closing other heavy tabs.</span>`);
+    showBanner(`<b>Couldn't load the model.</b><br>${esc(String(e?.message || e))}<br><span style="color:var(--muted)">Press <b>Load model</b> to retry — downloads resume where they stopped. If it keeps failing, check your connection or try a smaller model.</span>`);
   } finally {
     S.loading = false;
     $("btnLoad").disabled = false; $("modelSelect").disabled = false;
@@ -1029,7 +1206,9 @@ $("input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shif
 const stopGen = () => { S.abort = true; try { S.engine?.interruptGenerate(); } catch {} };
 $("btnSend").addEventListener("click", () => (S.generating ? stopGen() : send()));
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S.generating) stopGen(); });
-$("btnLoad").addEventListener("click", loadModel);
+$("btnLoad").addEventListener("click", () => loadModel());
+$("autoLoad").checked = store.get("autoload", true);
+$("autoLoad").addEventListener("change", () => store.set("autoload", $("autoLoad").checked));
 $("btnClear").addEventListener("click", newChat);
 $("modelSelect").addEventListener("change", () => { renderModelInfo(); renderEngineInfo(); });
 $("btnTheme").addEventListener("click", () => {
@@ -1080,12 +1259,25 @@ mq.addEventListener("change", syncLeftBtn); syncLeftBtn();
   setInterval(sampleStorage, 5000); sampleStorage();
   setInterval(renderSysInfo, 5000);
   renderSysInfo();
-  // detect the GPU, then warm the engine library in the background so "Load model" starts instantly
-  probeGPU().then(() => { renderSysInfo(); renderEngineInfo(); renderModelInfo(); return loadLibrary(); }).then(() => { if (!S.loadedModelId && S.gpuInfo) setStatus("", "No model loaded"); refreshCacheFlags(); renderModelInfo(); }).catch((e) => {
-    console.warn(e);
-    setStatus("err", "Couldn't reach the engine CDN");
-    showBanner(`<b>Couldn't download the AI engine library</b> from jsDelivr. Check your internet connection or any content blocker, then reload the page.`);
-  });
+  // detect the GPU, load the engine (cached after the first visit), then auto-load the model so it is ready when you are
+  (async () => {
+    await probeGPU(); renderSysInfo(); renderEngineInfo(); renderModelInfo();
+    if (!S.gpuInfo) return;
+    setStatus("busy", "Loading AI engine…");
+    try { await loadLibrary((t, p) => setStage(t, p)); } catch (e) {
+      console.warn(e); stopStage(); setStatus("err", "Couldn't reach the engine CDN");
+      showBanner(`<b>Couldn't download the AI engine library</b> (jsDelivr / unpkg). Check your internet connection or any content blocker, then reload the page.`); return;
+    }
+    stopStage(); $("progText").textContent = ""; $("progBar").style.width = "0%";
+    setStatus("", "No model loaded");
+    await refreshCacheFlags();
+    if (store.get("autoload", true)) {
+      const last = store.get("lastLoaded", null);
+      if (last && MODELS.some((m) => m.id === last) && S.cachedIds.has(last)) $("modelSelect").value = last;
+      renderModelInfo();
+      loadModel({ auto: true });
+    }
+  })();
 })();
 </script>
 </body>
