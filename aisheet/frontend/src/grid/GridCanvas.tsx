@@ -861,11 +861,7 @@ export function GridCanvas() {
       if (k === 'd') { e.preventDefault(); return A.fillDown(); }
       if (k === 'r') { e.preventDefault(); return A.fillRight(); }
       if (k === 'a') { e.preventDefault(); return s.select({ r: 0, c: 0 }, { r: 1048575, c: 16383 }); }
-      if (k === 's') { e.preventDefault(); void A.saveFile(e.shiftKey); return; }
-      if (k === 'o') { e.preventDefault(); void A.openFile(); return; }
-      if (k === 'n') { e.preventDefault(); A.newWorkbook(); return; }
       if (k === 'c' || k === 'x' || k === 'v') return; // handled by clipboard events
-      if (k === 'k' || k === 'j') { e.preventDefault(); s.set({ panel: 'ai' }); return; }
       return;
     }
   };

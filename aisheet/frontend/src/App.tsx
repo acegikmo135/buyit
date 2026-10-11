@@ -10,7 +10,7 @@ import { ChatPanel } from './ui/ChatPanel';
 import { HistoryPanel } from './ui/HistoryPanel';
 import { SettingsModal } from './ui/SettingsModal';
 import { useApplyTheme } from './ui/theme';
-import { installFx, openPath } from './actions';
+import { installFx, openPath, openFile, saveFile, newWorkbook } from './actions';
 import { getLaunchFile, onNative, setWindowTitle, setDirty } from './platform';
 import { startDictation, stopDictation, cancelDictation, useVoice, type DictationTarget } from './voice/dictation';
 import { composerTarget } from './ui/Composer';
@@ -53,6 +53,13 @@ export default function App() {
         if (ph === 'idle') void startDictation(target);
         else if (ph === 'listening') void stopDictation(target);
       } else if (e.key === 'Escape' && useVoice.getState().phase !== 'idle') cancelDictation();
+      else if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        const k = e.key.toLowerCase();
+        if (k === 's') { e.preventDefault(); void saveFile(e.shiftKey); }
+        else if (k === 'o') { e.preventDefault(); void openFile(); }
+        else if (k === 'n' && !e.shiftKey) { e.preventDefault(); void newWorkbook(); }
+        else if (k === 'k') { e.preventDefault(); const s = useStore.getState(); s.set({ panel: s.panel === 'ai' ? null : 'ai' }); }
+      }
     };
     window.addEventListener('keydown', h, true);
     return () => window.removeEventListener('keydown', h, true);
