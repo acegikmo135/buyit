@@ -27,6 +27,10 @@ Everything here runs on free, keyless APIs or free tiers. No paid service is req
 
 Known limits: the agent checks **direct** dependencies only; PyPI's feed has no severity; LeaseLens rules are US/UK-style rules of thumb, **not legal advice**.
 
+## Setup on your laptop
+
+Step-by-step install and usage for all three: **[SETUP.md](SETUP.md)**.
+
 ## Run all tests
 
 ```bash

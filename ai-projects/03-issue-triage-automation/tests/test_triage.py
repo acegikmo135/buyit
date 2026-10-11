@@ -196,6 +196,13 @@ class EventTests(unittest.TestCase):
         self.assertEqual(gh.posted, [])
 
 
+class MainEnvTests(unittest.TestCase):
+    def test_missing_env_is_a_clear_error_not_a_traceback(self):
+        saved = {k: os.environ.pop(k, None) for k in ("GITHUB_REPOSITORY", "GITHUB_TOKEN")}
+        self.addCleanup(lambda: [os.environ.__setitem__(k, v) for k, v in saved.items() if v])
+        self.assertEqual(run.main(["--issue", "5", "--dry-run"]), 2)
+
+
 class LLMTests(unittest.TestCase):
     class Resp:
         def __init__(self, text): self.t = text

@@ -18,7 +18,11 @@ def main(argv=None, reg: Registries | None = None, gen=None) -> int:
     p.add_argument("-v", "--verbose", action="store_true")
     a = p.parse_args(argv)
 
-    deps = manifests.load(a.manifest, a.lock)
+    try:
+        deps = manifests.load(a.manifest, a.lock)
+    except (OSError, ValueError) as e:
+        print(f"depdoctor: cannot read manifest: {e}", file=sys.stderr)
+        return 2
     if a.no_dev:
         deps = [d for d in deps if not d.dev]
     reg = reg or Registries()

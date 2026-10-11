@@ -109,6 +109,8 @@ class AgentTests(unittest.TestCase):
         dep = manifests.Dependency("x", "npm", "github:a/b", None, False, False)
         s = agent.run([dep], Registries(fake_http({}, {})))[0]
         self.assertIn("skipped", s.error)
+        f = triage.classify(s)
+        self.assertEqual((f.bucket, f.installed), ("unknown", "?"))  # visible in the report, not silently dropped
 
     def test_network_error_is_reported_not_raised(self):
         def boom(*a, **k):
@@ -209,6 +211,14 @@ class CliTests(unittest.TestCase):
         code, out = self.run_cli(self.path, "--format", "json", "--fail-on", "fix-now", http=http)
         self.assertEqual(code, 1)
         self.assertEqual(json.loads(out)["findings"][0]["target"], "1.2.0")
+
+    def test_missing_manifest_is_a_clear_error(self):
+        import contextlib
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = cli.main(["/nonexistent/package.json"], reg=Registries(fake_http({}, {})))
+        self.assertEqual(code, 2)
+        self.assertIn("cannot read manifest", err.getvalue())
 
     def test_clean_exit_zero(self):
         code, out = self.run_cli(self.path, "--fail-on", "any", http=fake_http({}, VERSIONS))

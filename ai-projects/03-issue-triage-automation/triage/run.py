@@ -97,7 +97,12 @@ def main(argv=None, gh=None) -> int:
     if number is None:
         print("nothing to triage")
         return 0
-    gh = gh or GitHub(os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"])
+    if gh is None:
+        missing = [v for v in ("GITHUB_REPOSITORY", "GITHUB_TOKEN") if not os.environ.get(v)]
+        if missing:
+            print("Set " + " and ".join(missing) + " (see SETUP.md, section 'Issue triage').", file=sys.stderr)
+            return 2
+        gh = GitHub(os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"])
     plan = triage_issue(gh, number, a.dry_run, llm.gemini_classify)
     print(json.dumps(plan, indent=2))
     return 0

@@ -34,10 +34,10 @@ def _sev_name(rank: int) -> str:
 
 
 def classify(s: DepState) -> Optional[Finding]:
-    if s.error or not s.vulns:
-        if s.error and s.dep.version:
-            return Finding(s.dep.name, s.dep.ecosystem, s.dep.version, s.dep.exact, s.dep.dev, "unknown",
-                           f"could not check: {s.error}", "none", [], None, "none", False, None)
+    if s.error:  # includes skipped specs: never let an unchecked package look "clean"
+        return Finding(s.dep.name, s.dep.ecosystem, s.dep.version or "?", s.dep.exact, s.dep.dev, "unknown",
+                       f"could not check: {s.error}", "none", [], None, "none", False, None)
+    if not s.vulns:
         return None
     rank, prod = s.max_sev, not s.dep.dev
     unknown_sev = all(v["severity"] == "unknown" for v in s.vulns)  # PyPI feed has no severity
