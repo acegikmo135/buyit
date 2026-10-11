@@ -1,8 +1,0 @@
-# whisper.cpp must not be tuned to the CI machine's CPU, or the app can crash with "illegal instruction"
-# on other PCs. AVX2/FMA/F16C are safe on any PC from the last ~10 years.
-[env]
-GGML_NATIVE = "OFF"
-GGML_AVX2 = "ON"
-GGML_FMA = "ON"
-GGML_F16C = "ON"
-GGML_AVX512 = "OFF"

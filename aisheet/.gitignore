@@ -1,7 +1,9 @@
 node_modules
-dist
-src-tauri/target
-src-tauri/gen
+frontend/dist/*
+!frontend/dist/.keep
+build/bin
+dist-out
+installer/MicrosoftEdgeWebview2Setup.exe
+frontend/wailsjs
 *.log
 test-results
-public/ort

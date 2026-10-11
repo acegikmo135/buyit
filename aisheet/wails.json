@@ -1,0 +1,18 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "AiSheet",
+  "outputfilename": "AiSheet",
+  "frontend:dir": "frontend",
+  "frontend:install": "npm ci",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": { "name": "AiSheet", "email": "support@aisheet.app" },
+  "info": {
+    "companyName": "AiSheet",
+    "productName": "AiSheet",
+    "productVersion": "0.3.0",
+    "copyright": "© AiSheet",
+    "comments": "AI-native spreadsheet with English and Gujarati support"
+  }
+}
