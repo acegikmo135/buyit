@@ -1,3 +1,4 @@
+import { addr } from '../core/address';
 import { activeSheet, execContext, useStore, wb, providerModel, type ChatMsg, type Proposal } from '../store';
 import { AiError, type ChatMessage, type ProviderConfig } from './providers';
 import { buildContext, SYSTEM_PROMPT, type Action } from './protocol';
@@ -69,16 +70,21 @@ export async function sendPrompt(prompt: string) {
 }
 
 /** Runs one assistant turn for `prompt` (the user message must already be in the chat). */
+/** selection captured when the prompt was sent (used by "selection only" mode) */
+let lockedSel: ReturnType<typeof execContext>['selection'] = null;
+
 export async function respond(prompt: string) {
   const s = st();
   const cfg = await providerConfig();
   st().set({ busy: true });
   const ctx = execContext();
+  lockedSel = s.permissions.selectionOnly ? ctx.selection : null;
   controller = new AbortController();
   const placeholder = pushMsg({ role: 'ai', text: '', streaming: true, steps: [] });
   let visible = '';
   try {
-    const context = buildContext(wb, ctx.activeSheetId, ctx.selection);
+    let context = buildContext(wb, ctx.activeSheetId, ctx.selection);
+    if (lockedSel) context += `\n\nRESTRICTION: the user enabled "selection only". You may ONLY write to or format cells inside ${addr(lockedSel.r1, lockedSel.c1)}:${addr(lockedSel.r2, lockedSel.c2)} on "${wb.sheetById(ctx.activeSheetId)?.name}". Do not insert/delete rows or columns, add sheets or touch any other cell; anything outside is rejected.`;
     const history = historyFor(prompt, context);
     const run = await runModel({
       system: SYSTEM_PROMPT(s.aiLang, { multi: s.multiAgent }),
@@ -142,6 +148,7 @@ function denialText(d: Denied): string {
 export async function handleActions(msgId: number, actions: Action[], prompt: string, lastRaw: string, history: ChatMessage[], repairs: number) {
   const s = st();
   const ctx = execContext();
+  if (s.permissions.selectionOnly && lockedSel) ctx.selection = lockedSel;
   const { ok, denied } = screen(actions, s.permissions, ctx, wb);
   if (denied.length) pushMsg({ role: 'sys', text: tr('perm.denied.summary', { n: denied.length }) + ' ' + [...new Set(denied.map(denialText))].join('; ') });
   if (!ok.length) return;

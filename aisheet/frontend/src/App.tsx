@@ -8,7 +8,7 @@ import { FindBar } from './ui/dialogs/FindBar';
 import { FormulaBar } from './ui/FormulaBar';
 import { GridCanvas } from './grid/GridCanvas';
 import { SheetTabs } from './ui/SheetTabs';
-import { ChatPanel } from './ui/ChatPanel';
+import { ChatPanel, ChatRail } from './ui/ChatPanel';
 import { HistoryPanel } from './ui/HistoryPanel';
 import { SettingsModal } from './ui/SettingsModal';
 import { useApplyTheme } from './ui/theme';
@@ -29,6 +29,7 @@ const cellTarget: DictationTarget = {
 
 export default function App() {
   const panel = useStore((s) => s.panel);
+  const panelMin = useStore((s) => s.panelMin);
   const settingsOpen = useStore((s) => s.settingsOpen);
   const lang = useStore((s) => s.lang);
   const file = useStore((s) => s.file);
@@ -52,7 +53,7 @@ export default function App() {
         const s = useStore.getState();
         const ph = useVoice.getState().phase;
         const target = s.editing ? cellTarget : composerTarget;
-        if (!s.editing && s.panel !== 'ai') s.set({ panel: 'ai' });
+        if (!s.editing && (s.panel !== 'ai' || s.panelMin)) s.set({ panel: 'ai', panelMin: false });
         if (ph === 'idle') void startDictation(target);
         else if (ph === 'listening') void stopDictation(target);
       } else if (e.key === 'Escape' && useVoice.getState().phase !== 'idle') cancelDictation();
@@ -63,7 +64,7 @@ export default function App() {
         else if (k === 'n' && !e.shiftKey) { e.preventDefault(); void newWorkbook(); }
         else if (k === 'f') { e.preventDefault(); useStore.getState().set({ dialog: { kind: 'find' } }); }
         else if (k === 'h') { e.preventDefault(); useStore.getState().set({ dialog: { kind: 'find', replace: true } }); }
-        else if (k === 'k') { e.preventDefault(); const s = useStore.getState(); s.set({ panel: s.panel === 'ai' ? null : 'ai' }); }
+        else if (k === 'k') { e.preventDefault(); const s = useStore.getState(); if (s.panel === 'ai' && s.panelMin) s.set({ panelMin: false }); else s.set({ panel: s.panel === 'ai' ? null : 'ai' }); }
       }
     };
     window.addEventListener('keydown', h, true);
@@ -89,7 +90,7 @@ export default function App() {
           <GridCanvas />
           {dialog?.kind === 'find' && <FindBar key={dialog.replace ? 'r' : 'f'} replace={!!dialog.replace} />}
         </main>
-        {panel === 'ai' && <ChatPanel />}
+        {panel === 'ai' && (panelMin ? <ChatRail /> : <ChatPanel />)}
         {panel === 'history' && <HistoryPanel />}
       </div>
       <SheetTabs />

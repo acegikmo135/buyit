@@ -72,5 +72,6 @@ export const en = {
   'act.add_comment': 'Comment on {ref}', 'act.delete_comment': 'Remove comment on {ref}', 'act.define_name': 'Define name {name}', 'act.hide': 'Hide rows/columns', 'act.unhide': 'Unhide rows/columns',
   'chart.doughnut': 'Doughnut', 'chart.scatter': 'Scatter', 'chart.headerRow': 'First row is header', 'chart.headerCol': 'First column is labels', 'chart.legend': 'Show legend', 'chart.stacked': 'Stacked',
   'find.matchCase': 'Match case', 'find.wholeCell': 'Whole cell', 'find.allSheets': 'All sheets',
+  'ai.selOnly': 'Selection only', 'ai.selOnlyOn': 'Only {range}', 'ai.selOnlyHint': 'The AI may only change the cells you have selected right now.', 'ai.minimize': 'Minimize assistant', 'ai.expand': 'Open assistant', 'ai.resize': 'Drag to resize · double-click to reset',
 };
 export type Key = keyof typeof en;

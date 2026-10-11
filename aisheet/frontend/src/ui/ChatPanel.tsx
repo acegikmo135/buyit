@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { AlertCircle, Check, CircleDashed, Eye, Loader2, Network, Search, Settings2, Sparkles, SquarePen, Undo2, X, Wand2, Table2, ArrowUpDown, MessageCircleQuestion } from 'lucide-react';
+import { AlertCircle, Check, CircleDashed, Eye, Loader2, Network, Search, Settings2, Sparkles, SquarePen, Undo2, X, Wand2, Table2, ArrowUpDown, MessageCircleQuestion, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { Button, Card, Checkbox, Chip, Tooltip, ScrollShadow } from '@heroui/react';
 import { useStore, wb, providerModel, type ChatMsg } from '../store';
 import { approveProposal, clearChat, rejectProposal, revertMessage, toggleProposalAction, sendPrompt, patchMsg, cancelPrompt } from '../ai/agent';
@@ -196,6 +196,7 @@ export function ChatPanel() {
   const proposal = useStore((s) => s.proposal);
   const providerId = useStore((s) => s.providerId);
   const set = useStore((s) => s.set);
+  const width = useStore((s) => s.panelWidth);
   const end = useRef<HTMLDivElement>(null);
   const provider = PROVIDERS.find((p) => p.id === providerId)!;
 
@@ -204,8 +205,25 @@ export function ChatPanel() {
   }, [msgs, proposal, busy]);
 
   return (
-    <aside className="bg-surface flex h-full min-h-0 w-[440px] shrink-0 flex-col border-l">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+    <aside className="bg-surface relative flex h-full min-h-0 shrink-0 flex-col border-l" style={{ width }}>
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t('ai.resize')}
+        onPointerDown={(e) => {
+          e.preventDefault();
+          const sx = e.clientX;
+          const w0 = width;
+          const move = (ev: PointerEvent) => set({ panelWidth: Math.round(Math.min(Math.max(320, w0 + (sx - ev.clientX)), Math.min(760, window.innerWidth - 420))) });
+          const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); document.body.style.cursor = ''; };
+          document.body.style.cursor = 'col-resize';
+          window.addEventListener('pointermove', move);
+          window.addEventListener('pointerup', up);
+        }}
+        onDoubleClick={() => set({ panelWidth: 400 })}
+        className="hover:bg-accent/40 absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize transition-colors"
+      />
+      <header className="flex h-10 shrink-0 items-center gap-1.5 border-b px-3">
         <Sparkles size={16} className="text-ai" />
         <span className="font-semibold tracking-tight">{t('ai.title')}</span>
         <button type="button" onClick={() => set({ settingsOpen: true, settingsTab: 'ai' })} className="text-muted hover:text-foreground hover:bg-surface-secondary ml-1 flex max-w-[190px] items-center gap-1.5 truncate rounded-full border px-2.5 py-0.5 text-xs transition-colors" title={t('ai.providerHint')}>
@@ -218,13 +236,17 @@ export function ChatPanel() {
           <Tooltip.Content>{t('ai.newChat')}</Tooltip.Content>
         </Tooltip>
         <Tooltip delay={300}>
+          <Button isIconOnly size="sm" variant="ghost" aria-label={t('ai.minimize')} onPress={() => set({ panelMin: true })}><PanelRightClose size={16} /></Button>
+          <Tooltip.Content>{t('ai.minimize')}</Tooltip.Content>
+        </Tooltip>
+        <Tooltip delay={300}>
           <Button isIconOnly size="sm" variant="ghost" aria-label={t('settings.title')} onPress={() => set({ settingsOpen: true, settingsTab: 'ai' })}><Settings2 size={16} /></Button>
           <Tooltip.Content>{t('settings.title')}</Tooltip.Content>
         </Tooltip>
       </header>
 
       <ScrollShadow className="min-h-0 flex-1" hideScrollBar={false}>
-        <div className="flex min-h-full flex-col gap-5 px-4 py-5">
+        <div className="flex min-h-full flex-col gap-4 px-3 py-3">
           {msgs.length === 0 ? <Empty /> : msgs.map((m, i) => <Message key={m.id} m={m} last={i === msgs.length - 1 || m.proposalId !== undefined} />)}
           <div ref={end} />
         </div>
@@ -236,3 +258,24 @@ export function ChatPanel() {
 }
 
 void sendPrompt;
+
+/** Collapsed assistant: a slim rail with an expand button (and a dot while the AI is working). */
+export function ChatRail() {
+  const t = useT();
+  const set = useStore((s) => s.set);
+  const busy = useStore((s) => s.busy);
+  const pending = useStore((s) => s.proposal?.status === 'pending');
+  return (
+    <aside className="bg-surface flex h-full w-11 shrink-0 flex-col items-center gap-2 border-l py-2">
+      <Tooltip delay={300}>
+        <Button isIconOnly size="sm" variant="ghost" aria-label={t('ai.expand')} onPress={() => set({ panelMin: false })}><PanelRightOpen size={17} /></Button>
+        <Tooltip.Content>{t('ai.expand')}</Tooltip.Content>
+      </Tooltip>
+      <div className="relative">
+        <Sparkles size={16} className="text-ai" />
+        {(busy || pending) && <span className={'bg-accent absolute -top-1 -right-1 size-2 rounded-full ' + (busy ? 'animate-pulse' : '')} />}
+      </div>
+      <button type="button" onClick={() => set({ panelMin: false })} className="text-muted hover:text-foreground mt-2 text-xs font-medium tracking-wide [writing-mode:vertical-rl]">{t('ai.title')}</button>
+    </aside>
+  );
+}

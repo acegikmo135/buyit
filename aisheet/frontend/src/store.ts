@@ -118,6 +118,9 @@ interface Persisted {
   strictPrivacy: boolean;
   /** allow the assistant to split big jobs across parallel sub-agents */
   multiAgent: boolean;
+  /** assistant side-panel width in px, and whether it is collapsed to a rail */
+  panelWidth: number;
+  panelMin: boolean;
 }
 
 const SETTINGS_KEY = 'aisheet:settings:v1';
@@ -135,6 +138,8 @@ function loadPersisted(): Persisted {
     voice: { lang: 'en', polish: true },
     strictPrivacy: true,
     multiAgent: true,
+    panelWidth: 400,
+    panelMin: false,
   };
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
@@ -203,12 +208,12 @@ export const useStore = create<AppState>((set, get) => ({
 
   set: (p) => {
     set(p);
-    if ('theme' in p || 'lang' in p || 'aiLang' in p || 'providerId' in p || 'models' in p || 'baseUrls' in p || 'permissions' in p || 'panel' in p || 'voice' in p || 'strictPrivacy' in p || 'multiAgent' in p) get().persist();
+    if ('theme' in p || 'lang' in p || 'aiLang' in p || 'providerId' in p || 'models' in p || 'baseUrls' in p || 'permissions' in p || 'panel' in p || 'voice' in p || 'strictPrivacy' in p || 'multiAgent' in p || 'panelWidth' in p || 'panelMin' in p) get().persist();
   },
   select: (anchor, active) => set({ anchor, active: active ?? anchor }),
   persist: () => {
     const s = get();
-    const p: Persisted = { theme: s.theme, lang: s.lang, aiLang: s.aiLang, providerId: s.providerId, models: s.models, baseUrls: s.baseUrls, permissions: s.permissions, panel: s.panel, voice: s.voice, strictPrivacy: s.strictPrivacy, multiAgent: s.multiAgent };
+    const p: Persisted = { theme: s.theme, lang: s.lang, aiLang: s.aiLang, providerId: s.providerId, models: s.models, baseUrls: s.baseUrls, permissions: s.permissions, panel: s.panel, voice: s.voice, strictPrivacy: s.strictPrivacy, multiAgent: s.multiAgent, panelWidth: s.panelWidth, panelMin: s.panelMin };
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(p));
     } catch {

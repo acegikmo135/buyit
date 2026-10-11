@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
-import { ArrowUp, Mic, Square, Lock, ShieldCheck, Zap, ChevronDown, Check } from 'lucide-react';
+import { ArrowUp, Mic, Square, Lock, ShieldCheck, Zap, ChevronDown, Check, BoxSelect } from 'lucide-react';
 import { Button, Dropdown, Tooltip, TextArea, Kbd } from '@heroui/react';
-import { useStore } from '../store';
+import { useStore, selectionRange } from '../store';
+import { addr } from '../core/address';
 import { sendPrompt, cancelPrompt } from '../ai/agent';
 import { useVoice, startDictation, stopDictation, type DictationTarget } from '../voice/dictation';
 import { WaveBars } from './WaveBars';
@@ -20,6 +21,8 @@ export function Composer() {
   const draft = useStore((s) => s.draft);
   const busy = useStore((s) => s.busy);
   const perms = useStore((s) => s.permissions);
+  const anchor = useStore((s) => s.anchor);
+  const active = useStore((s) => s.active);
   const voiceLang = useStore((s) => s.voice.lang);
   const set = useStore((s) => s.set);
   const { phase, seconds } = useVoice();
@@ -31,7 +34,7 @@ export function Composer() {
     const el = ta.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = Math.min(180, el.scrollHeight) + 'px';
+    el.style.height = Math.min(Math.round(window.innerHeight * 0.4), el.scrollHeight) + 'px';
     if (phase !== 'idle') el.scrollTop = el.scrollHeight;
   }, [draft, phase]);
 
@@ -44,14 +47,33 @@ export function Composer() {
 
   const modeIcon = perms.mode === 'readonly' ? <Lock size={14} /> : perms.mode === 'ask' ? <ShieldCheck size={14} /> : <Zap size={14} />;
 
+  const R = selectionRange();
+  const selLabel = R.r1 === R.r2 && R.c1 === R.c2 ? addr(R.r1, R.c1) : `${addr(R.r1, R.c1)}:${addr(R.r2, R.c2)}`;
+  void anchor; void active;
+  const selOnly = perms.selectionOnly;
+
   return (
-    <div className="px-4 pt-2 pb-3">
+    <div className="px-3 pt-1.5 pb-2">
       <div
         className={
           'bg-surface relative rounded-3xl border shadow-sm transition-all ' +
           (listening ? 'border-accent ring-accent/20 ring-4' : 'border-border focus-within:border-accent/60 focus-within:ring-accent/10 focus-within:ring-4')
         }
       >
+        <div className="flex items-center gap-1.5 px-3 pt-2">
+          <Tooltip delay={300}>
+            <button
+              type="button"
+              aria-pressed={selOnly}
+              onClick={() => set({ permissions: { ...useStore.getState().permissions, selectionOnly: !selOnly } })}
+              className={'flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs transition-colors ' + (selOnly ? 'border-accent/50 bg-accent/10 text-accent font-medium' : 'text-muted hover:bg-surface-secondary')}
+            >
+              <BoxSelect size={13} />
+              {selOnly ? t('ai.selOnlyOn', { range: selLabel }) : t('ai.selOnly')}
+            </button>
+            <Tooltip.Content>{t('ai.selOnlyHint')}</Tooltip.Content>
+          </Tooltip>
+        </div>
         <TextArea
           ref={ta}
           rows={1}
@@ -67,7 +89,7 @@ export function Composer() {
               send();
             } else if (e.key === 'Escape') focusGrid();
           }}
-          className="composer-ta max-h-[180px] min-h-[52px] w-full resize-none rounded-3xl px-4 pt-3.5 pb-1 text-[14px] leading-6"
+          className="composer-ta max-h-[40vh] min-h-[64px] w-full resize-none rounded-3xl px-4 pt-2 pb-1 text-[14px] leading-6"
         />
         <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
           {/* mic + language */}

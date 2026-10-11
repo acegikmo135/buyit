@@ -74,4 +74,5 @@ export const gu: Record<Key, string> = {
   'act.add_comment': '{ref} પર કોમેન્ટ', 'act.delete_comment': '{ref} ની કોમેન્ટ દૂર કરો', 'act.define_name': 'નામ {name} બનાવો', 'act.hide': 'પંક્તિ/કૉલમ છુપાવો', 'act.unhide': 'પંક્તિ/કૉલમ બતાવો',
   'chart.doughnut': 'ડોનટ', 'chart.scatter': 'સ્કેટર', 'chart.headerRow': 'પહેલી પંક્તિ હેડર છે', 'chart.headerCol': 'પહેલી કૉલમ લેબલ છે', 'chart.legend': 'લેજન્ડ બતાવો', 'chart.stacked': 'સ્ટેક્ડ',
   'find.matchCase': 'કેસ મેળવો', 'find.wholeCell': 'આખો સેલ', 'find.allSheets': 'બધી શીટ',
+  'ai.selOnly': 'ફક્ત પસંદગી', 'ai.selOnlyOn': 'ફક્ત {range}', 'ai.selOnlyHint': 'AI ફક્ત હમણાં પસંદ કરેલા સેલમાં જ ફેરફાર કરી શકશે.', 'ai.minimize': 'આસિસ્ટન્ટ નાનું કરો', 'ai.expand': 'આસિસ્ટન્ટ ખોલો', 'ai.resize': 'કદ બદલવા ખેંચો · રીસેટ માટે ડબલ-ક્લિક',
 };
